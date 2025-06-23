@@ -1,20 +1,62 @@
 name: omi_sdk
-description: "A new Flutter package project."
-version: 0.0.1
-homepage:
+description: A comprehensive Flutter SDK for Omi device connectivity and audio processing
+version: 1.0.0
+homepage: https://github.com/DevMaan707/omi-sdk
 
 environment:
-  sdk: ^3.7.2
+  sdk: ">=3.0.0 <4.0.0"
   flutter: ">=1.17.0"
 
 dependencies:
   flutter:
     sdk: flutter
 
+  # Core dependencies
+  collection: ^1.17.0
+
+  # Bluetooth
+  flutter_blue_plus: ^1.14.0
+  flutter_blue_plus_windows: ^1.14.0
+
+  # Audio processing
+
+  opus_flutter: ^3.0.3
+  opus_dart: ^3.0.1
+
+  # Permissions
+  permission_handler: ^10.4.3
+
+  # Background tasks
+  flutter_foreground_task: ^6.0.0
+
+  # WebSocket
+  flutter_sound: ^9.10.0
+  just_audio: ^0.9.39
+  frame_sdk: ^0.0.7
+  web_socket_channel: ^3.0.3
+  talker_flutter: 4.5.0
+
+  # HTTP
+  http: ^1.1.0
+
+  # Utilities
+  path_provider: ^2.0.15
+
+  # State management
+  provider: ^6.0.5
+
+  # Platform detection
+  universal_io: ^2.2.2
+
+  # Logging
+  logging: ^1.2.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
+  flutter_lints: ^2.0.0
+  mockito: ^5.4.0
+  build_runner: ^2.4.6
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
