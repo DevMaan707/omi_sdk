@@ -112,9 +112,14 @@ class StatusSection extends StatelessWidget {
                 _buildStatusChip(
                   'Streaming',
                   appState.isStreamingAudio ||
-                      appState
-                          .isStreamingTranscription, // Fix: use correct property names
+                      appState.isStreamingTranscription,
                   Icons.mic,
+                  colorScheme,
+                ),
+                _buildStatusChip(
+                  'Recording',
+                  appState.isRecording,
+                  Icons.fiber_manual_record,
                   colorScheme,
                 ),
               ],
@@ -188,6 +193,8 @@ class StatusSection extends StatelessWidget {
         return Icons.graphic_eq;
       case AppStatus.streamingTranscription:
         return Icons.transcribe;
+      case AppStatus.recording:
+        return Icons.fiber_manual_record;
       case AppStatus.error:
         return Icons.error;
     }
@@ -209,6 +216,8 @@ class StatusSection extends StatelessWidget {
         return Colors.blue;
       case AppStatus.streamingTranscription:
         return Colors.purple;
+      case AppStatus.recording:
+        return Colors.red;
     }
   }
 
@@ -230,6 +239,8 @@ class StatusSection extends StatelessWidget {
         return 'Audio streaming active';
       case AppStatus.streamingTranscription:
         return 'Live transcription active';
+      case AppStatus.recording:
+        return 'Recording audio from device';
       case AppStatus.error:
         return 'Something went wrong';
     }

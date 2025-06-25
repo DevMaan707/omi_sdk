@@ -10,6 +10,7 @@ import '../widgets/devices_section.dart';
 import '../widgets/activity_log.dart';
 import '../widgets/permission_dialog.dart';
 import '../widgets/transcription_display.dart';
+import '../widgets/recordings_section.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -32,6 +33,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     super.initState();
     _initializeAnimations();
     _checkPermissions();
+    _loadRecordings();
   }
 
   void _initializeAnimations() {
@@ -65,6 +67,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         statusMessage: 'Bluetooth permissions required',
         hasBluetoothPermissions: false,
       ));
+    }
+  }
+
+  Future<void> _loadRecordings() async {
+    try {
+      final recordings = await _omiService.getRecordings();
+      _updateState(_appState.copyWith(recordings: recordings));
+    } catch (e) {
+      print('Error loading recordings: $e');
     }
   }
 
@@ -151,36 +162,76 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         _addMessage('Received ${segments.length} transcript segments');
       }
     });
+
     _omiService.audioLevelsStream.listen((levels) {
       if (mounted) {
         _updateState(_appState.copyWith(audioLevels: levels));
       }
     });
 
-    // Deepgram transcription listeners
-    _omiService.transcriptionStream?.listen((transcript) {
+    // WebSocket state listener
+    _omiService.websocketStateStream?.listen((wsState) {
       if (mounted) {
-        setState(() {
-          _transcriptionText += transcript + ' ';
-        });
-        _updateState(_appState.copyWith(transcriptionText: _transcriptionText));
-      }
-    });
-
-    _omiService.interimStream?.listen((interim) {
-      if (mounted) {
-        setState(() {
-          _interimText = interim;
-        });
-        _updateState(_appState.copyWith(interimText: _interimText));
-      }
-    });
-
-    _omiService.deepgramConnectionStream?.listen((isConnected) {
-      if (mounted) {
+        final isConnected = wsState == WebSocketState.connected;
         _updateState(_appState.copyWith(isWebSocketConnected: isConnected));
       }
     });
+
+    // Transcription message listener
+    _omiService.transcriptionStream?.listen((message) {
+      if (mounted && message is Map<String, dynamic>) {
+        _handleTranscriptionMessage(message);
+      }
+    });
+
+    // Recording state listener
+    _omiService.recordingStateStream?.listen((state) {
+      if (mounted) {
+        final isRecording = state == RecordingState.recording;
+        _updateState(_appState.copyWith(
+          recordingState: state,
+          isRecording: isRecording,
+          status: isRecording ? AppStatus.recording : _appState.status,
+        ));
+      }
+    });
+
+    // Recording duration listener
+    _omiService.recordingDurationStream?.listen((duration) {
+      if (mounted) {
+        _updateState(_appState.copyWith(recordingDuration: duration));
+      }
+    });
+  }
+
+  void _handleTranscriptionMessage(Map<String, dynamic> message) {
+    try {
+      if (message['channel'] != null &&
+          message['channel']['alternatives'] != null &&
+          message['channel']['alternatives'].isNotEmpty) {
+        final transcript = message['channel']['alternatives'][0]['transcript'];
+        final isFinal = message['is_final'] ?? false;
+
+        if (transcript != null && transcript.isNotEmpty) {
+          if (isFinal) {
+            setState(() {
+              _transcriptionText += transcript + ' ';
+            });
+            _updateState(_appState.copyWith(
+              transcriptionText: _transcriptionText,
+              interimText: '',
+            ));
+          } else {
+            setState(() {
+              _interimText = transcript;
+            });
+            _updateState(_appState.copyWith(interimText: _interimText));
+          }
+        }
+      }
+    } catch (e) {
+      print('Error processing transcription message: $e');
+    }
   }
 
   void _addMessage(String message) {
@@ -200,6 +251,87 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
   }
 
+  // Recording methods
+  Future<void> _startRecording() async {
+    try {
+      await _omiService.startRecording();
+      _addMessage('Recording started');
+    } catch (e) {
+      _updateState(_appState.copyWith(
+        statusMessage: 'Failed to start recording: $e',
+      ));
+    }
+  }
+
+  Future<void> _stopRecording() async {
+    try {
+      await _omiService.stopRecording();
+      _addMessage('Recording stopped');
+      await _loadRecordings(); // Refresh recordings list
+    } catch (e) {
+      _updateState(_appState.copyWith(
+        statusMessage: 'Failed to stop recording: $e',
+      ));
+    }
+  }
+
+  Future<void> _pauseRecording() async {
+    try {
+      await _omiService.pauseRecording();
+      _addMessage('Recording paused');
+    } catch (e) {
+      _updateState(_appState.copyWith(
+        statusMessage: 'Failed to pause recording: $e',
+      ));
+    }
+  }
+
+  Future<void> _resumeRecording() async {
+    try {
+      await _omiService.resumeRecording();
+      _addMessage('Recording resumed');
+    } catch (e) {
+      _updateState(_appState.copyWith(
+        statusMessage: 'Failed to resume recording: $e',
+      ));
+    }
+  }
+
+  Future<void> _playRecording(String filePath) async {
+    try {
+      await _omiService.playRecording(filePath);
+      _addMessage('Playing recording');
+    } catch (e) {
+      _updateState(_appState.copyWith(
+        statusMessage: 'Failed to play recording: $e',
+      ));
+    }
+  }
+
+  Future<void> _stopPlayback() async {
+    try {
+      await _omiService.stopPlayback();
+      _addMessage('Playback stopped');
+    } catch (e) {
+      _updateState(_appState.copyWith(
+        statusMessage: 'Failed to stop playback: $e',
+      ));
+    }
+  }
+
+  Future<void> _deleteRecording(String filePath) async {
+    try {
+      await _omiService.deleteRecording(filePath);
+      _addMessage('Recording deleted');
+      await _loadRecordings(); // Refresh recordings list
+    } catch (e) {
+      _updateState(_appState.copyWith(
+        statusMessage: 'Failed to delete recording: $e',
+      ));
+    }
+  }
+
+  // Existing methods (startScan, connectToDevice, etc.) remain the same...
   Future<void> _startScan() async {
     if (!_appState.isInitialized ||
         _appState.isScanning ||
@@ -327,15 +459,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     if (!_appState.isConnected) return;
 
     try {
-      // Stop any ongoing streaming first
       if (_appState.isStreamingAudio || _appState.isStreamingTranscription) {
         await _stopStreaming();
       }
 
-      // Then disconnect
       await _omiService.disconnect();
 
-      // Reset all states
       setState(() {
         _transcriptionText = '';
         _interimText = '';
@@ -345,6 +474,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         connectedDevice: null,
         isStreamingAudio: false,
         isStreamingTranscription: false,
+        isRecording: false,
+        recordingState: RecordingState.idle,
         status: AppStatus.ready,
         statusMessage: 'Disconnected',
         audioLevels: [],
@@ -405,6 +536,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: 20),
               ],
+              // Recordings Section
+              RecordingsSection(
+                appState: _appState,
+                onStartRecording: _startRecording,
+                onStopRecording: _stopRecording,
+                onPauseRecording: _pauseRecording,
+                onResumeRecording: _resumeRecording,
+                onPlayRecording: _playRecording,
+                onStopPlayback: _stopPlayback,
+                onDeleteRecording: _deleteRecording,
+                onRefreshRecordings: _loadRecordings,
+              ),
+              const SizedBox(height: 20),
               // Transcription display
               if (_appState.isStreamingTranscription) ...[
                 TranscriptionDisplay(

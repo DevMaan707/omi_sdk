@@ -9,6 +9,7 @@ enum AppStatus {
   connected,
   streamingAudio,
   streamingTranscription,
+  recording,
   error,
 }
 
@@ -21,6 +22,9 @@ class AppState {
   final bool isConnected;
   final bool isStreamingAudio;
   final bool isStreamingTranscription;
+  final bool isRecording;
+  final RecordingState recordingState;
+  final Duration recordingDuration;
   final List<OmiDevice> allDevices;
   final List<OmiDevice> omiDevices;
   final OmiDevice? connectedDevice;
@@ -29,6 +33,7 @@ class AppState {
   final String interimText;
   final List<double> audioLevels; // For audio visualization
   final bool isWebSocketConnected;
+  final List<RecordingSession> recordings;
 
   const AppState({
     this.status = AppStatus.initializing,
@@ -39,6 +44,9 @@ class AppState {
     this.isConnected = false,
     this.isStreamingAudio = false,
     this.isStreamingTranscription = false,
+    this.isRecording = false,
+    this.recordingState = RecordingState.idle,
+    this.recordingDuration = Duration.zero,
     this.allDevices = const [],
     this.omiDevices = const [],
     this.connectedDevice,
@@ -47,6 +55,7 @@ class AppState {
     this.interimText = '',
     this.audioLevels = const [],
     this.isWebSocketConnected = false,
+    this.recordings = const [],
   });
 
   AppState copyWith({
@@ -58,6 +67,9 @@ class AppState {
     bool? isConnected,
     bool? isStreamingAudio,
     bool? isStreamingTranscription,
+    bool? isRecording,
+    RecordingState? recordingState,
+    Duration? recordingDuration,
     List<OmiDevice>? allDevices,
     List<OmiDevice>? omiDevices,
     OmiDevice? connectedDevice,
@@ -66,6 +78,7 @@ class AppState {
     String? interimText,
     List<double>? audioLevels,
     bool? isWebSocketConnected,
+    List<RecordingSession>? recordings,
   }) {
     return AppState(
       status: status ?? this.status,
@@ -78,6 +91,9 @@ class AppState {
       isStreamingAudio: isStreamingAudio ?? this.isStreamingAudio,
       isStreamingTranscription:
           isStreamingTranscription ?? this.isStreamingTranscription,
+      isRecording: isRecording ?? this.isRecording,
+      recordingState: recordingState ?? this.recordingState,
+      recordingDuration: recordingDuration ?? this.recordingDuration,
       allDevices: allDevices ?? this.allDevices,
       omiDevices: omiDevices ?? this.omiDevices,
       connectedDevice: connectedDevice ?? this.connectedDevice,
@@ -86,6 +102,7 @@ class AppState {
       interimText: interimText ?? this.interimText,
       audioLevels: audioLevels ?? this.audioLevels,
       isWebSocketConnected: isWebSocketConnected ?? this.isWebSocketConnected,
+      recordings: recordings ?? this.recordings,
     );
   }
 }

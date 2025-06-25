@@ -28,6 +28,9 @@ class WebSocketManager {
   int? _lastSampleRate;
   String? _lastLanguage;
   String? _lastUserId;
+  String? _lastWebsocketUrl;
+  String? _lastApiKey;
+  Map<String, String>? _lastCustomParams;
 
   WebSocketManager(this._config);
 
@@ -56,52 +59,77 @@ class WebSocketManager {
     _lastSampleRate = sampleRate;
     _lastLanguage = language;
     _lastUserId = userId;
+    _lastWebsocketUrl = websocketUrl;
+    _lastApiKey = apiKey;
+    _lastCustomParams = customParams;
 
     _updateState(WebSocketState.connecting);
 
     try {
-      final params = <String, String>{
-        'language': language,
-        'sample_rate': sampleRate.toString(),
-        'codec': codec.name,
-        'include_speech_profile': includeSpeechProfile.toString(),
-      };
+      final baseUrl = websocketUrl ??
+          _config.apiBaseUrl?.replaceAll('https', 'wss') ??
+          'wss://api.deepgram.com';
 
-      if (userId != null) {
-        params['uid'] = userId;
-      }
+      // Build query parameters
+      final params = <String, String>{};
 
-      // Add custom parameters
+      // Add custom parameters first (for Deepgram compatibility)
       if (customParams != null) {
         params.addAll(customParams);
+      }
+
+      // Add standard parameters if not already specified
+      if (!params.containsKey('language')) {
+        params['language'] = language;
+      }
+      if (!params.containsKey('sample_rate')) {
+        params['sample_rate'] = sampleRate.toString();
+      }
+      if (!params.containsKey('encoding')) {
+        // Map codec to Deepgram encoding
+        switch (codec) {
+          case AudioCodec.pcm8:
+          case AudioCodec.pcm16:
+            params['encoding'] = 'linear16';
+            break;
+          case AudioCodec.opus:
+          case AudioCodec.opusFS320:
+            params['encoding'] = 'opus';
+            break;
+        }
+      }
+
+      if (userId != null && !params.containsKey('uid')) {
+        params['uid'] = userId;
       }
 
       final queryString = params.entries
           .map((e) => '${e.key}=${Uri.encodeComponent(e.value)}')
           .join('&');
 
-      final baseUrl = websocketUrl ??
-          _config.apiBaseUrl?.replaceAll('https', 'wss') ??
-          DeviceConstants.defaultWebSocketUrl;
-
       final uri = Uri.parse('$baseUrl/v1/listen?$queryString');
 
+      // Set up headers
       final headers = <String, dynamic>{};
 
-      // Use provided API key or fall back to config
       final effectiveApiKey = apiKey ?? _config.apiKey;
       if (effectiveApiKey != null) {
-        headers['Authorization'] = 'Bearer $effectiveApiKey';
+        // Use Deepgram-style authentication
+        headers['Authorization'] =
+            'Token $effectiveApiKey'; // Note: "Token" not "Bearer" for Deepgram
       }
 
-      // Add custom headers
       if (customHeaders != null) {
         headers.addAll(customHeaders);
       }
 
+      print('Connecting to WebSocket: $uri');
+      print('Headers: $headers');
+
       _channel = IOWebSocketChannel.connect(
         uri,
-        headers: headers,
+        protocols: effectiveApiKey != null ? ['token', effectiveApiKey] : null,
+        headers: headers.isNotEmpty ? headers : null,
         pingInterval:
             Duration(seconds: DeviceConstants.heartbeatIntervalSeconds),
         connectTimeout:
@@ -112,24 +140,25 @@ class WebSocketManager {
       _updateState(WebSocketState.connected);
       _reconnectAttempts = 0;
 
-      _startHeartbeat();
+      print('WebSocket connected successfully');
 
       _channel!.stream.listen(
         (message) {
           _handleMessage(message);
         },
         onError: (error) {
-          _stopHeartbeat();
+          print('WebSocket error: $error');
           _updateState(WebSocketState.error);
           _scheduleReconnect();
         },
         onDone: () {
-          _stopHeartbeat();
+          print('WebSocket connection closed');
           _updateState(WebSocketState.disconnected);
           _scheduleReconnect();
         },
       );
     } catch (e) {
+      print('WebSocket connection failed: $e');
       _updateState(WebSocketState.error);
       _scheduleReconnect();
       rethrow;
@@ -138,12 +167,7 @@ class WebSocketManager {
 
   void _handleMessage(dynamic message) {
     try {
-      if (message == 'ping') {
-        _channel?.sink.add('pong');
-        return;
-      }
-
-      // Try to parse as JSON
+      // Parse JSON message
       dynamic jsonData;
       try {
         jsonData = jsonDecode(message);
@@ -155,20 +179,30 @@ class WebSocketManager {
         return;
       }
 
-      // Handle transcript segments (array)
-      if (jsonData is List) {
+      // Handle Deepgram response format
+      if (jsonData is Map<String, dynamic>) {
+        if (jsonData.containsKey('channel') &&
+            jsonData['channel'] != null &&
+            jsonData['channel']['alternatives'] != null &&
+            jsonData['channel']['alternatives'].isNotEmpty) {
+          // This is a transcription result
+          if (!_messageController.isClosed) {
+            _messageController.add(jsonData);
+          }
+        } else {
+          // Other message types
+          if (!_messageController.isClosed) {
+            _messageController.add(jsonData);
+          }
+        }
+      } else if (jsonData is List) {
+        // Handle array messages
         if (!_segmentsController.isClosed) {
           _segmentsController.add(jsonData);
         }
-        return;
-      }
-
-      // Handle message events (objects)
-      if (!_messageController.isClosed) {
-        _messageController.add(jsonData);
       }
     } catch (e) {
-      // Log error but don't crash
+      print('Error handling WebSocket message: $e');
     }
   }
 
@@ -189,6 +223,9 @@ class WebSocketManager {
           sampleRate: _lastSampleRate!,
           language: _lastLanguage ?? 'en',
           userId: _lastUserId,
+          websocketUrl: _lastWebsocketUrl,
+          apiKey: _lastApiKey,
+          customParams: _lastCustomParams,
         );
       }
     });
@@ -199,6 +236,7 @@ class WebSocketManager {
       try {
         _channel!.sink.add(audioData);
       } catch (e) {
+        print('Error sending audio: $e');
         _updateState(WebSocketState.error);
       }
     }
@@ -218,7 +256,8 @@ class WebSocketManager {
     _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (_) {
       if (_state == WebSocketState.connected) {
         try {
-          _channel?.sink.add('ping');
+          // Send keepalive message
+          sendMessage('{"type": "KeepAlive"}');
         } catch (e) {
           _updateState(WebSocketState.error);
         }
@@ -242,7 +281,7 @@ class WebSocketManager {
 
     if (_channel != null) {
       try {
-        await _channel!.sink.close(1000); // Normal closure
+        await _channel!.sink.close(1000);
       } catch (e) {
         // Ignore close errors
       }
