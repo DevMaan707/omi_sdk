@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import '../models/app_state.dart';
+import 'audio_visualizer.dart';
 
 class ControlsSection extends StatelessWidget {
   final AppState appState;
   final Animation<double> scanAnimation;
   final VoidCallback onStartScan;
-  final VoidCallback onStartStreaming;
+  final VoidCallback onStartAudioStream;
+  final VoidCallback onStartTranscriptionStream;
   final VoidCallback onStopStreaming;
   final VoidCallback onDisconnect;
 
@@ -14,7 +16,8 @@ class ControlsSection extends StatelessWidget {
     required this.appState,
     required this.scanAnimation,
     required this.onStartScan,
-    required this.onStartStreaming,
+    required this.onStartAudioStream,
+    required this.onStartTranscriptionStream,
     required this.onStopStreaming,
     required this.onDisconnect,
   });
@@ -53,6 +56,10 @@ class ControlsSection extends StatelessWidget {
 
             const SizedBox(height: 16),
 
+            // Audio Visualization
+            if (appState.isStreamingAudio || appState.isStreamingTranscription)
+              _buildAudioVisualization(context),
+
             // Secondary Actions
             if (appState.isConnected) _buildSecondaryActions(context),
           ],
@@ -76,7 +83,7 @@ class ControlsSection extends StatelessWidget {
                   ? onStartScan
                   : null,
               icon: Transform.rotate(
-                angle: scanAnimation.value * 6.28, // 2π for full rotation
+                angle: scanAnimation.value * 6.28,
                 child: Icon(
                   appState.isScanning ? Icons.radar : Icons.bluetooth_searching,
                   size: 20,
@@ -98,8 +105,41 @@ class ControlsSection extends StatelessWidget {
     );
   }
 
+  Widget _buildAudioVisualization(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Audio Stream',
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(
+            color:
+                Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.2),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: AudioVisualizer(
+            audioLevels: appState.audioLevels.isNotEmpty
+                ? appState.audioLevels
+                : List.generate(20, (index) => 0.0),
+            isActive:
+                appState.isStreamingAudio || appState.isStreamingTranscription,
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
   Widget _buildSecondaryActions(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final isStreaming =
+        appState.isStreamingAudio || appState.isStreamingTranscription;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -112,14 +152,16 @@ class ControlsSection extends StatelessWidget {
               ),
         ),
         const SizedBox(height: 12),
+
+        // Streaming buttons
         Row(
           children: [
             Expanded(
               child: FilledButton.icon(
-                onPressed: appState.isConnected && !appState.isStreaming
-                    ? onStartStreaming
+                onPressed: appState.isConnected && !isStreaming
+                    ? onStartAudioStream
                     : null,
-                icon: const Icon(Icons.mic, size: 18),
+                icon: const Icon(Icons.graphic_eq, size: 18),
                 label: const Text('Start Stream'),
                 style: FilledButton.styleFrom(
                   backgroundColor: colorScheme.secondary,
@@ -130,9 +172,11 @@ class ControlsSection extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: FilledButton.icon(
-                onPressed: appState.isStreaming ? onStopStreaming : null,
-                icon: const Icon(Icons.stop, size: 18),
-                label: const Text('Stop Stream'),
+                onPressed: appState.isConnected && !isStreaming
+                    ? onStartTranscriptionStream
+                    : null,
+                icon: const Icon(Icons.transcribe, size: 18),
+                label: const Text('Stream + Transcribe'),
                 style: FilledButton.styleFrom(
                   backgroundColor: colorScheme.tertiary,
                   foregroundColor: colorScheme.onTertiary,
@@ -141,18 +185,35 @@ class ControlsSection extends StatelessWidget {
             ),
           ],
         ),
+
         const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: appState.isConnected ? onDisconnect : null,
-            icon: const Icon(Icons.bluetooth_disabled, size: 18),
-            label: const Text('Disconnect'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: colorScheme.error,
-              side: BorderSide(color: colorScheme.error.withOpacity(0.5)),
+
+        // Stop and disconnect buttons
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: isStreaming ? onStopStreaming : null,
+                icon: const Icon(Icons.stop, size: 18),
+                label: const Text('Stop Stream'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: colorScheme.primary,
+                ),
+              ),
             ),
-          ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: appState.isConnected ? onDisconnect : null,
+                icon: const Icon(Icons.bluetooth_disabled, size: 18),
+                label: const Text('Disconnect'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: colorScheme.error,
+                  side: BorderSide(color: colorScheme.error.withOpacity(0.5)),
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );

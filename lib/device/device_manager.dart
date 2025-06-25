@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../constants/device_constants.dart';
 import 'models.dart';
 
 class DeviceManager {
@@ -110,7 +111,6 @@ class DeviceManager {
     if (FlutterBluePlus.adapterStateNow != BluetoothAdapterState.on) {
       if (Platform.isAndroid) {
         await FlutterBluePlus.turnOn();
-        // Wait for adapter to turn on
         await FlutterBluePlus.adapterState
             .where((state) => state == BluetoothAdapterState.on)
             .first
@@ -139,15 +139,14 @@ class DeviceManager {
       await FlutterBluePlus.startScan(
         timeout: timeout ?? const Duration(seconds: 10),
         withServices: [
-          Guid('19b10000-e8f2-537e-4f6c-d104768a1214'), // Omi service
-          Guid('7a230001-5475-a6a4-654c-8431f6ad49c4'), // Frame service
+          Guid(DeviceConstants.omiServiceUuid),
+          Guid(DeviceConstants.frameServiceUuid),
         ],
       );
     } catch (e) {
       _isScanning = false;
       rethrow;
     } finally {
-      // Scanning automatically stops after timeout
       _isScanning = false;
     }
   }
@@ -185,7 +184,6 @@ class DeviceManager {
     try {
       _connectedDevice = BluetoothDevice.fromId(deviceId);
 
-      // Listen to connection state changes
       _connectionStateSubscription?.cancel();
       _connectionStateSubscription =
           _connectedDevice!.connectionState.listen((state) {
@@ -196,11 +194,10 @@ class DeviceManager {
         }
       });
 
-      // Set MTU for better data transfer (Android only)
       if (Platform.isAndroid) {
         await _connectedDevice!.connect();
-        if (_connectedDevice!.mtuNow < 512) {
-          await _connectedDevice!.requestMtu(512);
+        if (_connectedDevice!.mtuNow < DeviceConstants.defaultMtuSize) {
+          await _connectedDevice!.requestMtu(DeviceConstants.defaultMtuSize);
         }
       } else {
         await _connectedDevice!.connect();
@@ -257,28 +254,27 @@ class DeviceManager {
       final audioService = services.firstWhere(
         (s) =>
             s.uuid.str128.toLowerCase() ==
-            '19b10000-e8f2-537e-4f6c-d104768a1214',
+            DeviceConstants.omiServiceUuid.toLowerCase(),
         orElse: () => throw Exception('Audio service not found'),
       );
 
       final audioCharacteristic = audioService.characteristics.firstWhere(
         (c) =>
             c.uuid.str128.toLowerCase() ==
-            '19b10001-e8f2-537e-4f6c-d104768a1214',
+            DeviceConstants.audioCharacteristicUuid.toLowerCase(),
         orElse: () => throw Exception('Audio characteristic not found'),
       );
 
       await audioCharacteristic.setNotifyValue(true);
 
       final subscription = audioCharacteristic.lastValueStream.listen((value) {
-        if (value.isNotEmpty && value.length > 3) {
-          onAudioReceived(value.sublist(3)); // Remove BLE header
+        if (value.isNotEmpty &&
+            value.length > DeviceConstants.audioHeaderSize) {
+          onAudioReceived(value.sublist(DeviceConstants.audioHeaderSize));
         }
       });
 
-      // Cancel subscription when device disconnects
       _connectedDevice!.cancelWhenDisconnected(subscription);
-
       return subscription;
     } catch (e) {
       throw Exception('Failed to setup audio stream: $e');
@@ -295,14 +291,14 @@ class DeviceManager {
       final audioService = services.firstWhere(
         (s) =>
             s.uuid.str128.toLowerCase() ==
-            '19b10000-e8f2-537e-4f6c-d104768a1214',
+            DeviceConstants.omiServiceUuid.toLowerCase(),
         orElse: () => throw Exception('Audio service not found'),
       );
 
       final codecCharacteristic = audioService.characteristics.firstWhere(
         (c) =>
             c.uuid.str128.toLowerCase() ==
-            '19b10002-e8f2-537e-4f6c-d104768a1214',
+            DeviceConstants.codecCharacteristicUuid.toLowerCase(),
         orElse: () => throw Exception('Audio codec characteristic not found'),
       );
 
@@ -335,21 +331,20 @@ class DeviceManager {
       final batteryService = services.firstWhere(
         (s) =>
             s.uuid.str128.toLowerCase() ==
-            '0000180f-0000-1000-8000-00805f9b34fb',
+            DeviceConstants.batteryServiceUuid.toLowerCase(),
         orElse: () => throw Exception('Battery service not found'),
       );
 
       final batteryCharacteristic = batteryService.characteristics.firstWhere(
         (c) =>
             c.uuid.str128.toLowerCase() ==
-            '00002a19-0000-1000-8000-00805f9b34fb',
+            DeviceConstants.batteryCharacteristicUuid.toLowerCase(),
         orElse: () => throw Exception('Battery characteristic not found'),
       );
 
       final batteryValue = await batteryCharacteristic.read();
       return batteryValue.isNotEmpty ? batteryValue[0] : -1;
     } catch (e) {
-      // Battery service not available on all devices
       return -1;
     }
   }

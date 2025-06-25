@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
+import '../constants/device_constants.dart';
 import '../core/config.dart';
 import '../device/models.dart';
 
@@ -41,13 +42,16 @@ class WebSocketManager {
     String language = 'en',
     String? userId,
     bool includeSpeechProfile = true,
+    String? websocketUrl,
+    String? apiKey,
+    Map<String, String>? customHeaders,
+    Map<String, String>? customParams,
   }) async {
     if (_state == WebSocketState.connected) return;
     if (_state == WebSocketState.connecting) {
       throw Exception('Connection already in progress');
     }
 
-    // Store parameters for potential reconnection
     _lastCodec = codec;
     _lastSampleRate = sampleRate;
     _lastLanguage = language;
@@ -67,31 +71,47 @@ class WebSocketManager {
         params['uid'] = userId;
       }
 
+      // Add custom parameters
+      if (customParams != null) {
+        params.addAll(customParams);
+      }
+
       final queryString = params.entries
           .map((e) => '${e.key}=${Uri.encodeComponent(e.value)}')
           .join('&');
 
-      final uri = Uri.parse(
-        '${_config.apiBaseUrl?.replaceAll('https', 'wss') ?? 'wss://api.omi.ai'}/v4/listen?$queryString',
-      );
+      final baseUrl = websocketUrl ??
+          _config.apiBaseUrl?.replaceAll('https', 'wss') ??
+          DeviceConstants.defaultWebSocketUrl;
+
+      final uri = Uri.parse('$baseUrl/v1/listen?$queryString');
 
       final headers = <String, dynamic>{};
-      if (_config.apiKey != null) {
-        headers['Authorization'] = 'Bearer ${_config.apiKey}';
+
+      // Use provided API key or fall back to config
+      final effectiveApiKey = apiKey ?? _config.apiKey;
+      if (effectiveApiKey != null) {
+        headers['Authorization'] = 'Bearer $effectiveApiKey';
+      }
+
+      // Add custom headers
+      if (customHeaders != null) {
+        headers.addAll(customHeaders);
       }
 
       _channel = IOWebSocketChannel.connect(
         uri,
         headers: headers,
-        pingInterval: const Duration(seconds: 30),
-        connectTimeout: const Duration(seconds: 15),
+        pingInterval:
+            Duration(seconds: DeviceConstants.heartbeatIntervalSeconds),
+        connectTimeout:
+            Duration(seconds: DeviceConstants.connectionTimeoutSeconds),
       );
 
       await _channel!.ready;
       _updateState(WebSocketState.connected);
       _reconnectAttempts = 0;
 
-      // Start heartbeat
       _startHeartbeat();
 
       _channel!.stream.listen(

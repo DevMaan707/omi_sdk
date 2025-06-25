@@ -7,7 +7,8 @@ enum AppStatus {
   scanning,
   connecting,
   connected,
-  streaming,
+  streamingAudio,
+  streamingTranscription,
   error,
 }
 
@@ -18,11 +19,16 @@ class AppState {
   final bool isInitialized;
   final bool isScanning;
   final bool isConnected;
-  final bool isStreaming;
+  final bool isStreamingAudio;
+  final bool isStreamingTranscription;
   final List<OmiDevice> allDevices;
   final List<OmiDevice> omiDevices;
   final OmiDevice? connectedDevice;
   final List<String> messages;
+  final String transcriptionText;
+  final String interimText;
+  final List<double> audioLevels; // For audio visualization
+  final bool isWebSocketConnected;
 
   const AppState({
     this.status = AppStatus.initializing,
@@ -31,11 +37,16 @@ class AppState {
     this.isInitialized = false,
     this.isScanning = false,
     this.isConnected = false,
-    this.isStreaming = false,
+    this.isStreamingAudio = false,
+    this.isStreamingTranscription = false,
     this.allDevices = const [],
     this.omiDevices = const [],
     this.connectedDevice,
     this.messages = const [],
+    this.transcriptionText = '',
+    this.interimText = '',
+    this.audioLevels = const [],
+    this.isWebSocketConnected = false,
   });
 
   AppState copyWith({
@@ -45,11 +56,16 @@ class AppState {
     bool? isInitialized,
     bool? isScanning,
     bool? isConnected,
-    bool? isStreaming,
+    bool? isStreamingAudio,
+    bool? isStreamingTranscription,
     List<OmiDevice>? allDevices,
     List<OmiDevice>? omiDevices,
     OmiDevice? connectedDevice,
     List<String>? messages,
+    String? transcriptionText,
+    String? interimText,
+    List<double>? audioLevels,
+    bool? isWebSocketConnected,
   }) {
     return AppState(
       status: status ?? this.status,
@@ -59,11 +75,17 @@ class AppState {
       isInitialized: isInitialized ?? this.isInitialized,
       isScanning: isScanning ?? this.isScanning,
       isConnected: isConnected ?? this.isConnected,
-      isStreaming: isStreaming ?? this.isStreaming,
+      isStreamingAudio: isStreamingAudio ?? this.isStreamingAudio,
+      isStreamingTranscription:
+          isStreamingTranscription ?? this.isStreamingTranscription,
       allDevices: allDevices ?? this.allDevices,
       omiDevices: omiDevices ?? this.omiDevices,
       connectedDevice: connectedDevice ?? this.connectedDevice,
       messages: messages ?? this.messages,
+      transcriptionText: transcriptionText ?? this.transcriptionText,
+      interimText: interimText ?? this.interimText,
+      audioLevels: audioLevels ?? this.audioLevels,
+      isWebSocketConnected: isWebSocketConnected ?? this.isWebSocketConnected,
     );
   }
 }

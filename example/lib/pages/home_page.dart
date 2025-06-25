@@ -9,6 +9,7 @@ import '../widgets/permission_banner.dart';
 import '../widgets/devices_section.dart';
 import '../widgets/activity_log.dart';
 import '../widgets/permission_dialog.dart';
+import '../widgets/transcription_display.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -20,6 +21,8 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   final OmiService _omiService = OmiService();
   AppState _appState = const AppState();
+  String _transcriptionText = '';
+  String _interimText = '';
 
   late AnimationController _scanAnimationController;
   late Animation<double> _scanAnimation;
@@ -148,6 +151,36 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         _addMessage('Received ${segments.length} transcript segments');
       }
     });
+    _omiService.audioLevelsStream.listen((levels) {
+      if (mounted) {
+        _updateState(_appState.copyWith(audioLevels: levels));
+      }
+    });
+
+    // Deepgram transcription listeners
+    _omiService.transcriptionStream?.listen((transcript) {
+      if (mounted) {
+        setState(() {
+          _transcriptionText += transcript + ' ';
+        });
+        _updateState(_appState.copyWith(transcriptionText: _transcriptionText));
+      }
+    });
+
+    _omiService.interimStream?.listen((interim) {
+      if (mounted) {
+        setState(() {
+          _interimText = interim;
+        });
+        _updateState(_appState.copyWith(interimText: _interimText));
+      }
+    });
+
+    _omiService.deepgramConnectionStream?.listen((isConnected) {
+      if (mounted) {
+        _updateState(_appState.copyWith(isWebSocketConnected: isConnected));
+      }
+    });
   }
 
   void _addMessage(String message) {
@@ -222,41 +255,67 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
   }
 
-  Future<void> _startStreaming() async {
-    if (!_appState.isConnected || _appState.isStreaming) return;
+  Future<void> _startAudioStream() async {
+    if (!_appState.isConnected) return;
 
     try {
       _updateState(_appState.copyWith(
-        isStreaming: true,
-        status: AppStatus.streaming,
-        statusMessage: 'Starting audio stream...',
+        isStreamingAudio: true,
+        status: AppStatus.streamingAudio,
+        statusMessage: 'Streaming audio...',
       ));
 
-      await _omiService.startAudioStreaming(
-          userId: 'user_${DateTime.now().millisecondsSinceEpoch}');
-
-      _updateState(_appState.copyWith(
-        statusMessage: 'Audio streaming active',
-      ));
+      await _omiService.startAudioOnlyStreaming();
+      _addMessage('Audio streaming started');
     } catch (e) {
       _updateState(_appState.copyWith(
-        isStreaming: false,
+        isStreamingAudio: false,
         status: AppStatus.connected,
-        statusMessage: 'Streaming failed: $e',
+        statusMessage: 'Audio streaming failed: $e',
+      ));
+    }
+  }
+
+  Future<void> _startTranscriptionStream() async {
+    if (!_appState.isConnected) return;
+
+    try {
+      _updateState(_appState.copyWith(
+        isStreamingTranscription: true,
+        status: AppStatus.streamingTranscription,
+        statusMessage: 'Streaming with transcription...',
+      ));
+
+      await _omiService.startTranscriptionStreaming(
+        userId: 'user_${DateTime.now().millisecondsSinceEpoch}',
+      );
+      _addMessage('Transcription streaming started');
+    } catch (e) {
+      _updateState(_appState.copyWith(
+        isStreamingTranscription: false,
+        status: AppStatus.connected,
+        statusMessage: 'Transcription streaming failed: $e',
       ));
     }
   }
 
   Future<void> _stopStreaming() async {
-    if (!_appState.isStreaming) return;
-
     try {
-      await _omiService.stopAudioStreaming();
+      await _omiService.stopStreaming();
+      setState(() {
+        _transcriptionText = '';
+        _interimText = '';
+      });
       _updateState(_appState.copyWith(
-        isStreaming: false,
+        isStreamingAudio: false,
+        isStreamingTranscription: false,
         status: AppStatus.connected,
-        statusMessage: 'Audio streaming stopped',
+        statusMessage: 'Streaming stopped',
+        audioLevels: [],
+        transcriptionText: '',
+        interimText: '',
       ));
+      _addMessage('Streaming stopped');
     } catch (e) {
       _updateState(_appState.copyWith(
         statusMessage: 'Stop streaming failed: $e',
@@ -268,13 +327,33 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     if (!_appState.isConnected) return;
 
     try {
+      // Stop any ongoing streaming first
+      if (_appState.isStreamingAudio || _appState.isStreamingTranscription) {
+        await _stopStreaming();
+      }
+
+      // Then disconnect
       await _omiService.disconnect();
+
+      // Reset all states
+      setState(() {
+        _transcriptionText = '';
+        _interimText = '';
+      });
+
       _updateState(_appState.copyWith(
         connectedDevice: null,
-        isStreaming: false,
+        isStreamingAudio: false,
+        isStreamingTranscription: false,
         status: AppStatus.ready,
         statusMessage: 'Disconnected',
+        audioLevels: [],
+        transcriptionText: '',
+        interimText: '',
+        isWebSocketConnected: false,
       ));
+
+      _addMessage('Disconnected from device');
     } catch (e) {
       _updateState(_appState.copyWith(
         statusMessage: 'Disconnect failed: $e',
@@ -312,7 +391,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 appState: _appState,
                 scanAnimation: _scanAnimation,
                 onStartScan: _startScan,
-                onStartStreaming: _startStreaming,
+                onStartAudioStream: _startAudioStream,
+                onStartTranscriptionStream: _startTranscriptionStream,
                 onStopStreaming: _stopStreaming,
                 onDisconnect: _disconnect,
               ),
@@ -322,6 +402,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 DevicesSection(
                   appState: _appState,
                   onConnectToDevice: _connectToDevice,
+                ),
+                const SizedBox(height: 20),
+              ],
+              // Transcription display
+              if (_appState.isStreamingTranscription) ...[
+                TranscriptionDisplay(
+                  transcriptionText: _appState.transcriptionText,
+                  interimText: _appState.interimText,
+                  isConnected: _appState.isWebSocketConnected,
                 ),
                 const SizedBox(height: 20),
               ],

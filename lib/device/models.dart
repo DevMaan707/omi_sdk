@@ -1,6 +1,14 @@
+import '../constants/device_constants.dart';
+
 enum DeviceType { omi, frame, openglass, unknown }
 
 enum DeviceConnectionState { disconnected, connecting, connected, error }
+
+enum StreamingMode {
+  audioOnly, // Just stream audio data
+  transcriptionOnly, // Stream to WebSocket for transcription
+  both // Stream audio + transcription
+}
 
 enum AudioCodec {
   pcm8,
@@ -17,6 +25,50 @@ enum AudioCodec {
       case AudioCodec.opusFS320:
         return 16000;
     }
+  }
+}
+
+class StreamingConfig {
+  final StreamingMode mode;
+  final String? websocketUrl;
+  final String? apiKey;
+  final String? userId;
+  final String language;
+  final bool includeSpeechProfile;
+  final Map<String, String>? customHeaders;
+  final Map<String, String>? customParams;
+
+  const StreamingConfig({
+    this.mode = StreamingMode.audioOnly,
+    this.websocketUrl,
+    this.apiKey,
+    this.userId,
+    this.language = 'en',
+    this.includeSpeechProfile = true,
+    this.customHeaders,
+    this.customParams,
+  });
+
+  StreamingConfig copyWith({
+    StreamingMode? mode,
+    String? websocketUrl,
+    String? apiKey,
+    String? userId,
+    String? language,
+    bool? includeSpeechProfile,
+    Map<String, String>? customHeaders,
+    Map<String, String>? customParams,
+  }) {
+    return StreamingConfig(
+      mode: mode ?? this.mode,
+      websocketUrl: websocketUrl ?? this.websocketUrl,
+      apiKey: apiKey ?? this.apiKey,
+      userId: userId ?? this.userId,
+      language: language ?? this.language,
+      includeSpeechProfile: includeSpeechProfile ?? this.includeSpeechProfile,
+      customHeaders: customHeaders ?? this.customHeaders,
+      customParams: customParams ?? this.customParams,
+    );
   }
 }
 
@@ -47,10 +99,11 @@ class OmiDevice {
     final serviceStrings =
         services.map((s) => s.toString().toLowerCase()).toList();
 
-    if (serviceStrings.contains('19b10000-e8f2-537e-4f6c-d104768a1214')) {
+    if (serviceStrings.contains(DeviceConstants.omiServiceUuid.toLowerCase())) {
       return DeviceType.omi;
     }
-    if (serviceStrings.contains('7a230001-5475-a6a4-654c-8431f6ad49c4')) {
+    if (serviceStrings
+        .contains(DeviceConstants.frameServiceUuid.toLowerCase())) {
       return DeviceType.frame;
     }
     return DeviceType.unknown;

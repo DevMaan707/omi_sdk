@@ -111,7 +111,9 @@ class StatusSection extends StatelessWidget {
                 ),
                 _buildStatusChip(
                   'Streaming',
-                  appState.isStreaming,
+                  appState.isStreamingAudio ||
+                      appState
+                          .isStreamingTranscription, // Fix: use correct property names
                   Icons.mic,
                   colorScheme,
                 ),
@@ -182,8 +184,10 @@ class StatusSection extends StatelessWidget {
         return Icons.sync;
       case AppStatus.connected:
         return Icons.bluetooth_connected;
-      case AppStatus.streaming:
-        return Icons.mic;
+      case AppStatus.streamingAudio:
+        return Icons.graphic_eq;
+      case AppStatus.streamingTranscription:
+        return Icons.transcribe;
       case AppStatus.error:
         return Icons.error;
     }
@@ -200,8 +204,11 @@ class StatusSection extends StatelessWidget {
         return colorScheme.error;
       case AppStatus.ready:
       case AppStatus.connected:
-      case AppStatus.streaming:
         return Colors.green;
+      case AppStatus.streamingAudio:
+        return Colors.blue;
+      case AppStatus.streamingTranscription:
+        return Colors.purple;
     }
   }
 
@@ -219,8 +226,10 @@ class StatusSection extends StatelessWidget {
         return 'Establishing connection';
       case AppStatus.connected:
         return 'Device connected successfully';
-      case AppStatus.streaming:
-        return 'Audio streaming in progress';
+      case AppStatus.streamingAudio:
+        return 'Audio streaming active';
+      case AppStatus.streamingTranscription:
+        return 'Live transcription active';
       case AppStatus.error:
         return 'Something went wrong';
     }
