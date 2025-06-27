@@ -2,9 +2,11 @@
 
 A comprehensive Flutter SDK for connecting to and streaming audio from Omi devices, enabling real-time speech transcription and AI interactions.
 
-## Credits
+## Attribution
 
-This SDK is built for the [Omi ecosystem](https://github.com/BasedHardware/omi) - an open-source AI wearable that records everything you say and hear in the real world and then transcribes, summarizes, and chats with you about it.
+This SDK is based on [OMI by BasedHardware](https://github.com/BasedHardware/omi),
+originally licensed under the MIT License.
+All original work belongs to its respective authors.
 
 Special thanks to the [BasedHardware team](https://github.com/BasedHardware/omi) for creating the Omi platform and making it open source.
 
