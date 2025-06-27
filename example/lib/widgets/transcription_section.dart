@@ -1,4 +1,3 @@
-// omi_sdk/example/lib/widgets/professional/transcription_section.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../theme/app_theme.dart';

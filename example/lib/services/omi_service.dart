@@ -1,6 +1,4 @@
-// omi_sdk/example/lib/services/omi_service.dart
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math';
 import 'dart:math' as math;
 import 'dart:typed_data';

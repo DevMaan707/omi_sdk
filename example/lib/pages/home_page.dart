@@ -1,7 +1,5 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:omi_sdk/omi_sdk.dart';
-import 'package:permission_handler/permission_handler.dart';
 import '../models/app_state.dart';
 import '../services/omi_service.dart';
 import '../widgets/modern_status_card.dart';

@@ -1,4 +1,3 @@
-// omi_sdk/example/lib/models/app_state.dart
 import 'package:omi_sdk/omi_sdk.dart';
 
 enum AppStatus {

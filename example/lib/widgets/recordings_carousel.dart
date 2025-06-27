@@ -1,4 +1,3 @@
-// omi_sdk/example/lib/widgets/recordings_carousel.dart
 import 'package:flutter/material.dart';
 import 'package:omi_sdk/omi_sdk.dart';
 import '../models/app_state.dart';

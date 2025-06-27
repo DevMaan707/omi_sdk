@@ -1,4 +1,3 @@
-// omi_sdk/example/lib/widgets/audio_wave_section.dart
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import '../models/app_state.dart';
