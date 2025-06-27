@@ -1,6 +1,6 @@
 name: omi_sdk
 description: A comprehensive Flutter SDK for connecting to and streaming audio from Omi devices via Bluetooth, with support for real-time transcription and audio recording.
-version: 1.0.0
+version: 1.0.1
 homepage: "https://github.com/DevMaan707/omi_sdk"
 repository: https://github.com/DevMaan707/omi_sdk
 environment:

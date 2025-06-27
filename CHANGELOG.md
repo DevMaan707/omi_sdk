@@ -7,3 +7,7 @@
 - WebSocket integration for transcription
 - Cross-platform support (Android/iOS)
 - Comprehensive example app
+
+
+### v1.0.1
+- Updated Readme
