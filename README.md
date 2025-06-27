@@ -1,25 +1,18 @@
 # Omi SDK for Flutter
 
-A comprehensive Flutter SDK for connecting to and streaming audio from Omi devices, enabling real-time speech transcription and AI interactions.
-
-## Attribution
-
-This SDK is based on [OMI by BasedHardware](https://github.com/BasedHardware/omi),
-originally licensed under the MIT License.
-All original work belongs to its respective authors.
-
-Special thanks to the [BasedHardware team](https://github.com/BasedHardware/omi) for creating the Omi platform and making it open source.
+A comprehensive Flutter SDK for connecting to and streaming audio from Omi devices, with built-in support for real-time transcription, audio recording, and WebSocket streaming.
 
 ## Features
 
-- 🔍 **Device Discovery**: Scan and discover Omi devices via Bluetooth
-- 🔗 **Device Connection**: Connect to Omi devices with automatic reconnection
-- 🎤 **Audio Streaming**: Stream real-time audio from connected devices
-- 📡 **WebSocket Integration**: Send audio to Omi's transcription service
-- 🔋 **Battery Monitoring**: Monitor device battery levels
-- 🎛️ **Audio Codec Support**: Support for multiple audio codecs (PCM8, PCM16, Opus)
-- 📱 **Cross-Platform**: Works on both Android and iOS
-- 🔄 **Auto-Reconnection**: Automatic reconnection on connection loss
+- 🎧 **Audio Streaming**: Real-time audio streaming from Omi devices
+- 🎙️ **Recording**: Record and save audio sessions to local storage
+- 📝 **Transcription**: Real-time speech-to-text via WebSocket (Deepgram compatible)
+- 🔊 **Playback**: Play recorded audio files
+- 📱 **Device Management**: Scan, connect, and manage Omi devices via Bluetooth
+- 🔋 **Battery Monitoring**: Get battery levels from connected devices
+- 🎵 **Multiple Codecs**: Support for PCM8, PCM16, Opus, and OpusFS320
+- 🔄 **Auto-Reconnection**: Automatic reconnection for both Bluetooth and WebSocket
+- 📊 **Audio Processing**: Real-time audio processing and format conversion
 
 ## Installation
 
@@ -27,23 +20,13 @@ Add this to your package's `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-  omi_sdk:
-    git:
-      url: https://github.com/DevMaan707/omi_sdk.git
-```
-
-Or if published to pub.dev:
-
-```yaml
-dependencies:
   omi_sdk: ^1.0.0
 ```
 
-## Permissions
+### Platform-specific Setup
 
-### Android
-
-Add these permissions to your `android/app/src/main/AndroidManifest.xml`:
+#### Android
+Add the following permissions to your `android/app/src/main/AndroidManifest.xml`:
 
 ```xml
 <uses-permission android:name="android.permission.BLUETOOTH" />
@@ -52,19 +35,17 @@ Add these permissions to your `android/app/src/main/AndroidManifest.xml`:
 <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 <uses-permission android:name="android.permission.RECORD_AUDIO" />
+<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 ```
 
-### iOS
-
-Add these to your `ios/Runner/Info.plist`:
+#### iOS
+Add the following to your `ios/Runner/Info.plist`:
 
 ```xml
 <key>NSBluetoothAlwaysUsageDescription</key>
-<string>This app needs Bluetooth to connect to Omi devices</string>
-<key>NSBluetoothPeripheralUsageDescription</key>
-<string>This app needs Bluetooth to connect to Omi devices</string>
+<string>This app uses Bluetooth to connect to Omi devices</string>
 <key>NSMicrophoneUsageDescription</key>
-<string>This app needs microphone access for audio processing</string>
+<string>This app needs microphone access to process audio</string>
 ```
 
 ## Quick Start
@@ -74,414 +55,526 @@ Add these to your `ios/Runner/Info.plist`:
 ```dart
 import 'package:omi_sdk/omi_sdk.dart';
 
-// Initialize with your Omi API configuration
-final sdk = await OmiSDK.initialize(
-  OmiConfig(
-    apiBaseUrl: 'https://api.omi.ai',
-    apiKey: 'your-api-key-here', // Get from https://omi.ai
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize the SDK with your configuration
+  final sdk = await OmiSDK.initialize(OmiConfig(
+    apiKey: 'your-deepgram-api-key', // Optional: For transcription
+    apiBaseUrl: 'wss://api.deepgram.com', // Optional: Custom WebSocket URL
     connectionTimeout: Duration(seconds: 15),
-    scanTimeout: Duration(seconds: 15),
     autoReconnect: true,
     maxReconnectAttempts: 3,
-  ),
-);
+  ));
+
+  runApp(MyApp());
+}
 ```
 
 ### 2. Scan for Devices
 
 ```dart
+// Start scanning for Omi devices
+await OmiSDK.instance.device.startScan();
+
 // Listen for discovered devices
-sdk.device.devicesStream.listen((devices) {
+OmiSDK.instance.device.devicesStream.listen((devices) {
   print('Found ${devices.length} devices');
   for (final device in devices) {
     print('Device: ${device.name} (${device.id})');
   }
 });
 
-// Start scanning
-await sdk.device.startScan(timeout: Duration(seconds: 15));
+// Stop scanning after 10 seconds
+await Future.delayed(Duration(seconds: 10));
+await OmiSDK.instance.device.stopScan();
 ```
 
 ### 3. Connect to a Device
 
 ```dart
-// Listen for connection state changes
-sdk.device.connectionStateStream.listen((state) {
-  print('Connection state: ${state.name}');
-});
-
 // Connect to a specific device
-await sdk.device.connectToDevice('device-id');
-```
+final deviceId = 'your-device-id';
+await OmiSDK.instance.device.connectToDevice(deviceId);
 
-### 4. Start Audio Streaming
-
-```dart
-// Start complete audio streaming workflow
-await sdk.startAudioStreaming(
-  userId: 'your-user-id', // Optional
-);
-
-// Listen for transcription messages
-sdk.websocket.messageStream.listen((message) {
-  print('Received message: $message');
+// Listen for connection state changes
+OmiSDK.instance.device.connectionStateStream.listen((state) {
+  switch (state) {
+    case DeviceConnectionState.connected:
+      print('Device connected!');
+      break;
+    case DeviceConnectionState.disconnected:
+      print('Device disconnected');
+      break;
+    case DeviceConnectionState.connecting:
+      print('Connecting...');
+      break;
+    case DeviceConnectionState.error:
+      print('Connection error');
+      break;
+  }
 });
-
-// Listen for transcript segments
-sdk.websocket.segmentsStream.listen((segments) {
-  print('Received ${segments.length} transcript segments');
-});
 ```
 
-### 5. Stop Streaming and Clean Up
+## Usage Examples
+
+### Audio Recording
 
 ```dart
-// Stop audio streaming
-await sdk.stopAudioStreaming();
-
-// Disconnect from device
-await sdk.device.disconnect();
-
-// Dispose of the SDK
-await sdk.dispose();
-```
-
-## Complete Example
-
-Here's a complete example showing how to build a simple Omi device controller:
-
-```dart
-import 'package:flutter/material.dart';
-import 'package:omi_sdk/omi_sdk.dart';
-
-class OmiController extends StatefulWidget {
+class AudioRecordingExample extends StatefulWidget {
   @override
-  _OmiControllerState createState() => _OmiControllerState();
+  _AudioRecordingExampleState createState() => _AudioRecordingExampleState();
 }
 
-class _OmiControllerState extends State<OmiController> {
-  OmiSDK? _sdk;
-  List<OmiDevice> _devices = [];
-  OmiDevice? _connectedDevice;
+class _AudioRecordingExampleState extends State<AudioRecordingExample> {
+  bool _isRecording = false;
+  RecordingSession? _currentSession;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Recording controls
+        ElevatedButton(
+          onPressed: _isRecording ? _stopRecording : _startRecording,
+          child: Text(_isRecording ? 'Stop Recording' : 'Start Recording'),
+        ),
+
+        // Recording duration display
+        StreamBuilder<Duration>(
+          stream: OmiSDK.instance.recording.recordingDurationStream,
+          builder: (context, snapshot) {
+            final duration = snapshot.data ?? Duration.zero;
+            return Text('Duration: ${_formatDuration(duration)}');
+          },
+        ),
+
+        // Recording state display
+        StreamBuilder<RecordingState>(
+          stream: OmiSDK.instance.recording.stateStream,
+          builder: (context, snapshot) {
+            final state = snapshot.data ?? RecordingState.idle;
+            return Text('State: ${state.toString()}');
+          },
+        ),
+      ],
+    );
+  }
+
+  Future<void> _startRecording() async {
+    try {
+      final filePath = await OmiSDK.instance.startRecording(
+        customFileName: 'my_recording_${DateTime.now().millisecondsSinceEpoch}.wav',
+      );
+      print('Recording started: $filePath');
+      setState(() => _isRecording = true);
+    } catch (e) {
+      print('Failed to start recording: $e');
+    }
+  }
+
+  Future<void> _stopRecording() async {
+    try {
+      final session = await OmiSDK.instance.stopRecording();
+      if (session != null) {
+        print('Recording saved: ${session.filePath}');
+        setState(() {
+          _isRecording = false;
+          _currentSession = session;
+        });
+      }
+    } catch (e) {
+      print('Failed to stop recording: $e');
+    }
+  }
+
+  String _formatDuration(Duration duration) {
+    final minutes = duration.inMinutes;
+    final seconds = duration.inSeconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+}
+```
+
+### Real-time Transcription
+
+```dart
+class TranscriptionExample extends StatefulWidget {
+  @override
+  _TranscriptionExampleState createState() => _TranscriptionExampleState();
+}
+
+class _TranscriptionExampleState extends State<TranscriptionExample> {
+  String _currentTranscript = '';
   bool _isStreaming = false;
-  List<String> _messages = [];
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        ElevatedButton(
+          onPressed: _isStreaming ? _stopTranscription : _startTranscription,
+          child: Text(_isStreaming ? 'Stop Transcription' : 'Start Transcription'),
+        ),
+
+        // WebSocket state
+        StreamBuilder<WebSocketState>(
+          stream: OmiSDK.instance.websocket.stateStream,
+          builder: (context, snapshot) {
+            final state = snapshot.data ?? WebSocketState.disconnected;
+            return Text('WebSocket: ${state.toString()}');
+          },
+        ),
+
+        // Transcription results
+        StreamBuilder<Map<String, dynamic>>(
+          stream: OmiSDK.instance.websocket.messageStream,
+          builder: (context, snapshot) {
+            if (snapshot.hasData) {
+              final message = snapshot.data!;
+              if (message['type'] == 'Results') {
+                _updateTranscript(message);
+              }
+            }
+            return Container(
+              padding: EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                _currentTranscript.isEmpty
+                  ? 'Transcription will appear here...'
+                  : _currentTranscript,
+                style: TextStyle(fontSize: 16),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Future<void> _startTranscription() async {
+    try {
+      await OmiSDK.instance.startTranscriptionStreaming(
+        language: 'en-US',
+        userId: 'user123',
+        includeSpeechProfile: true,
+      );
+      setState(() => _isStreaming = true);
+    } catch (e) {
+      print('Failed to start transcription: $e');
+    }
+  }
+
+  Future<void> _stopTranscription() async {
+    try {
+      await OmiSDK.instance.stopAudioStreaming();
+      setState(() => _isStreaming = false);
+    } catch (e) {
+      print('Failed to stop transcription: $e');
+    }
+  }
+
+  void _updateTranscript(Map<String, dynamic> message) {
+    // Extract transcript from Deepgram response
+    String? transcript;
+    final isFinal = message['is_final'] as bool? ?? false;
+
+    if (message['channel'] != null) {
+      final channel = message['channel'] as Map<String, dynamic>?;
+      if (channel?['alternatives'] is List) {
+        final alternatives = channel!['alternatives'] as List;
+        if (alternatives.isNotEmpty && alternatives[0] is Map) {
+          final firstAlt = alternatives[0] as Map<String, dynamic>;
+          transcript = firstAlt['transcript'] as String?;
+        }
+      }
+    }
+
+    if (transcript != null && transcript.isNotEmpty && isFinal) {
+      setState(() {
+        _currentTranscript += ' $transcript';
+      });
+    }
+  }
+}
+```
+
+### Audio Playback
+
+```dart
+class PlaybackExample extends StatefulWidget {
+  @override
+  _PlaybackExampleState createState() => _PlaybackExampleState();
+}
+
+class _PlaybackExampleState extends State<PlaybackExample> {
+  List<RecordingSession> _recordings = [];
 
   @override
   void initState() {
     super.initState();
-    _initializeSDK();
+    _loadRecordings();
   }
 
-  Future<void> _initializeSDK() async {
-    try {
-      _sdk = await OmiSDK.initialize(
-        OmiConfig(
-          apiBaseUrl: 'https://api.omi.ai',
-          apiKey: 'your-api-key-here',
-        ),
-      );
-
-      // Listen for devices
-      _sdk!.device.devicesStream.listen((devices) {
-        setState(() {
-          _devices = devices;
-        });
-      });
-
-      // Listen for connection state
-      _sdk!.device.connectionStateStream.listen((state) {
-        if (state == DeviceConnectionState.connected) {
-          setState(() {
-            _connectedDevice = _sdk!.device.connectedDevice;
-          });
-        } else if (state == DeviceConnectionState.disconnected) {
-          setState(() {
-            _connectedDevice = null;
-            _isStreaming = false;
-          });
-        }
-      });
-
-      // Listen for messages
-      _sdk!.websocket.messageStream.listen((message) {
-        setState(() {
-          _messages.insert(0, message.toString());
-        });
-      });
-
-    } catch (e) {
-      print('Failed to initialize SDK: $e');
-    }
-  }
-
-  Future<void> _startScan() async {
-    try {
-      await _sdk?.device.startScan(timeout: Duration(seconds: 15));
-    } catch (e) {
-      print('Scan failed: $e');
-    }
-  }
-
-  Future<void> _connectToDevice(OmiDevice device) async {
-    try {
-      await _sdk?.device.connectToDevice(device.id);
-    } catch (e) {
-      print('Connection failed: $e');
-    }
-  }
-
-  Future<void> _startStreaming() async {
-    try {
-      await _sdk?.startAudioStreaming(userId: 'user_123');
-      setState(() {
-        _isStreaming = true;
-      });
-    } catch (e) {
-      print('Streaming failed: $e');
-    }
-  }
-
-  Future<void> _stopStreaming() async {
-    try {
-      await _sdk?.stopAudioStreaming();
-      setState(() {
-        _isStreaming = false;
-      });
-    } catch (e) {
-      print('Stop streaming failed: $e');
-    }
+  Future<void> _loadRecordings() async {
+    final recordings = await OmiSDK.instance.getRecordings();
+    setState(() => _recordings = recordings);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text('Omi Controller')),
-      body: Column(
-        children: [
-          // Connection Status
-          Card(
-            child: ListTile(
-              leading: Icon(
-                _connectedDevice != null
-                  ? Icons.bluetooth_connected
-                  : Icons.bluetooth_disabled,
-                color: _connectedDevice != null ? Colors.green : Colors.red,
-              ),
-              title: Text(_connectedDevice?.name ?? 'Not connected'),
-              subtitle: Text(_connectedDevice?.id ?? 'No device'),
-            ),
-          ),
-
-          // Controls
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+    return ListView.builder(
+      itemCount: _recordings.length,
+      itemBuilder: (context, index) {
+        final recording = _recordings[index];
+        return ListTile(
+          title: Text('Recording ${recording.id}'),
+          subtitle: Text('Duration: ${_formatDuration(recording.duration)}'),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              ElevatedButton(
-                onPressed: _startScan,
-                child: Text('Scan'),
+              IconButton(
+                icon: Icon(Icons.play_arrow),
+                onPressed: () => _playRecording(recording.filePath),
               ),
-              ElevatedButton(
-                onPressed: _connectedDevice != null && !_isStreaming
-                    ? _startStreaming
-                    : null,
-                child: Text('Start Stream'),
-              ),
-              ElevatedButton(
-                onPressed: _isStreaming ? _stopStreaming : null,
-                child: Text('Stop Stream'),
+              IconButton(
+                icon: Icon(Icons.delete),
+                onPressed: () => _deleteRecording(recording),
               ),
             ],
           ),
-
-          // Devices List
-          Expanded(
-            child: ListView.builder(
-              itemCount: _devices.length,
-              itemBuilder: (context, index) {
-                final device = _devices[index];
-                return ListTile(
-                  title: Text(device.name),
-                  subtitle: Text('${device.type.name} • ${device.rssi} dBm'),
-                  trailing: ElevatedButton(
-                    onPressed: () => _connectToDevice(device),
-                    child: Text('Connect'),
-                  ),
-                );
-              },
-            ),
-          ),
-
-          // Messages
-          if (_messages.isNotEmpty)
-            Expanded(
-              child: ListView.builder(
-                itemCount: _messages.length,
-                itemBuilder: (context, index) {
-                  return ListTile(
-                    title: Text(_messages[index]),
-                    dense: true,
-                  );
-                },
-              ),
-            ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  @override
-  void dispose() {
-    _sdk?.dispose();
-    super.dispose();
+  Future<void> _playRecording(String filePath) async {
+    try {
+      await OmiSDK.instance.playRecording(filePath);
+    } catch (e) {
+      print('Failed to play recording: $e');
+    }
+  }
+
+  Future<void> _deleteRecording(RecordingSession recording) async {
+    try {
+      await OmiSDK.instance.deleteRecording(recording.filePath);
+      await _loadRecordings(); // Refresh list
+    } catch (e) {
+      print('Failed to delete recording: $e');
+    }
+  }
+
+  String _formatDuration(Duration duration) {
+    final minutes = duration.inMinutes;
+    final seconds = duration.inSeconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 }
 ```
 
-## API Reference
-
-### OmiSDK
-
-The main SDK class that provides access to all functionality.
+### Dual Streaming (Audio + Transcription)
 
 ```dart
-// Initialize
-static Future<OmiSDK> initialize(OmiConfig config)
+// Stream both audio data and transcription simultaneously
+await OmiSDK.instance.startDualStreaming(
+  language: 'en-US',
+  userId: 'user123',
+);
 
-// Properties
-DeviceManager get device
-AudioManager get audio
-WebSocketManager get websocket
-bool get isInitialized
+// Listen to audio data
+OmiSDK.instance.audio.audioDataStream.listen((audioData) {
+  // Process raw audio data
+  print('Received ${audioData.length} bytes of audio');
+});
 
-// Methods
-Future<void> startAudioStreaming({String? userId})
-Future<void> stopAudioStreaming()
-Future<void> dispose()
+// Listen to transcription
+OmiSDK.instance.websocket.messageStream.listen((message) {
+  if (message['type'] == 'Results') {
+    // Handle transcription results
+    print('Transcription: ${message}');
+  }
+});
 ```
 
-### DeviceManager
+## Advanced Features
 
-Handles Bluetooth device discovery and connection.
+### Custom WebSocket Parameters
 
 ```dart
-// Properties
-List<OmiDevice> get discoveredDevices
-Stream<List<OmiDevice>> get devicesStream
-Stream<DeviceConnectionState> get connectionStateStream
-bool get isConnected
-OmiDevice? get connectedDevice
-
-// Methods
-Future<void> startScan({Duration? timeout})
-Future<void> stopScan()
-Future<void> connectToDevice(String deviceId)
-Future<void> disconnect()
-Future<int> getBatteryLevel()
+await OmiSDK.instance.startTranscriptionStreaming(
+  websocketUrl: 'wss://your-custom-server.com/v1/listen',
+  apiKey: 'your-api-key',
+  language: 'en-US',
+  customHeaders: {
+    'X-Custom-Header': 'value',
+  },
+  customParams: {
+    'model': 'nova-2',
+    'smart_format': 'true',
+    'diarize': 'true',
+  },
+);
 ```
 
-### AudioManager
-
-Manages audio streaming from connected devices.
+### Audio Codec Detection
 
 ```dart
-// Properties
-Stream<Uint8List> get audioDataStream
-bool get isStreaming
-
-// Methods
-Future<void> startAudioStream({required Function getAudioStream})
-Future<void> stopAudioStream()
+// The SDK automatically detects the audio codec from the device
+final codec = await OmiSDK.instance.device.getAudioCodec();
+print('Device codec: $codec');
+print('Sample rate: ${codec.sampleRate} Hz');
 ```
 
-### WebSocketManager
-
-Handles WebSocket connection to Omi's transcription service.
+### Battery Monitoring
 
 ```dart
-// Properties
-Stream<dynamic> get messageStream
-Stream<List<dynamic>> get segmentsStream
-WebSocketState get state
-
-// Methods
-Future<void> connect({required AudioCodec codec, required int sampleRate})
-Future<void> disconnect()
-void sendAudio(List<int> audioData)
+// Get current battery level
+final batteryLevel = await OmiSDK.instance.device.getBatteryLevel();
+print('Battery: $batteryLevel%');
 ```
 
-## Configuration
-
-### OmiConfig
+### Debug Logging
 
 ```dart
-const OmiConfig({
-  String? apiBaseUrl,           // Default: 'https://api.omi.ai'
-  String? apiKey,               // Your Omi API key
-  Duration connectionTimeout,   // Default: 15 seconds
-  Duration scanTimeout,         // Default: 10 seconds
-  bool autoReconnect,          // Default: true
-  int maxReconnectAttempts,    // Default: 3
-})
+// Get current audio debug log path
+final logPath = OmiSDK.instance.getCurrentAudioLogPath();
+print('Audio debug log: $logPath');
+
+// Get all log files
+final allLogs = OmiSDK.instance.getAllAudioLogFiles();
+for (final log in allLogs) {
+  print('Log file: $log');
+}
 ```
 
-## Device Types
+## Supported Audio Codecs
 
-The SDK supports multiple device types:
+- **PCM 8-bit**: 8kHz sample rate, 1 byte per sample
+- **PCM 16-bit**: 16kHz sample rate, 2 bytes per sample
+- **Opus**: 16kHz sample rate, compressed audio
+- **Opus FS320**: 16kHz sample rate, compressed audio with 320ms frame size
 
-- `DeviceType.omi`: Official Omi devices
-- `DeviceType.frame`: Frame devices
-- `DeviceType.openglass`: OpenGlass devices
-- `DeviceType.unknown`: Other Bluetooth devices
-
-## Audio Codecs
-
-Supported audio codecs:
-
-- `AudioCodec.pcm8`: 8kHz PCM
-- `AudioCodec.pcm16`: 16kHz PCM
-- `AudioCodec.opus`: Opus codec
-- `AudioCodec.opusFS320`: Opus with 320 frame size
+The SDK automatically detects the codec from your Omi device and handles the appropriate decoding.
 
 ## Error Handling
 
-The SDK provides comprehensive error handling:
-
 ```dart
 try {
-  await sdk.device.connectToDevice(deviceId);
+  await OmiSDK.instance.device.connectToDevice(deviceId);
 } catch (e) {
-  if (e.toString().contains('permissions')) {
-    // Handle permission errors
-  } else if (e.toString().contains('timeout')) {
-    // Handle timeout errors
+  if (e.toString().contains('Device not found')) {
+    // Handle device not found
+  } else if (e.toString().contains('Connection timeout')) {
+    // Handle connection timeout
   } else {
     // Handle other errors
   }
 }
 ```
 
-## Contributing
+## Best Practices
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+1. **Always initialize the SDK** before using any features
+2. **Handle connection states** properly in your UI
+3. **Dispose resources** when done:
+   ```dart
+   @override
+   void dispose() {
+     OmiSDK.instance.dispose();
+     super.dispose();
+   }
+   ```
+4. **Check connection status** before starting audio operations
+5. **Use StreamBuilder** widgets for real-time updates
+6. **Handle permissions** gracefully on both Android and iOS
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Bluetooth Permission Denied**
+   - Ensure all required permissions are added to your manifest
+   - Request permissions at runtime on Android 6+
+
+2. **WebSocket Connection Failed**
+   - Check your API key and endpoint URL
+   - Verify network connectivity
+   - Check firewall settings
+
+3. **Audio Codec Issues**
+   - The SDK automatically handles codec detection
+   - Check debug logs for codec information
+
+4. **No Devices Found**
+   - Ensure Bluetooth is enabled
+   - Check if the device is in pairing mode
+   - Verify the device supports Omi service UUIDs
+
+### Debug Information
+
+Enable debug logging to get detailed information:
+
+```dart
+// Audio debug logs are automatically created
+final logPath = OmiSDK.instance.getCurrentAudioLogPath();
+// Check the log file for detailed audio processing information
+```
+
+## API Reference
+
+### OmiSDK Core
+- `initialize(OmiConfig)` - Initialize the SDK
+- `startRecording()` - Start audio recording
+- `stopRecording()` - Stop recording and get session
+- `startTranscriptionStreaming()` - Start real-time transcription
+- `startDualStreaming()` - Start audio + transcription
+- `dispose()` - Clean up resources
+
+### Device Manager
+- `startScan()` - Scan for devices
+- `connectToDevice(String)` - Connect to device
+- `getAudioCodec()` - Get device audio codec
+- `getBatteryLevel()` - Get battery level
+
+### Audio Manager
+- `audioDataStream` - Raw audio data stream
+- `processedAudioStream` - Processed audio stream
+- `isStreaming` - Current streaming state
+
+### WebSocket Manager
+- `connect()` - Connect to WebSocket
+- `messageStream` - Incoming message stream
+- `sendAudio()` - Send audio data
+
+### Recording Manager
+- `startRecording()` - Start recording session
+- `pauseRecording()` - Pause current recording
+- `getRecordings()` - Get all recordings
+- `playRecording()` - Play audio file
+
+## Attribution
+
+This SDK is based on [OMI by BasedHardware](https://github.com/BasedHardware/omi),
+originally licensed under the MIT License.
+All original work belongs to its respective authors.
+
+Special thanks to the [BasedHardware team](https://github.com/BasedHardware/omi) for creating the Omi platform and making it open source.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT License - see LICENSE file for details.
+
+## Contributing
+
+Contributions are welcome! Please read our contributing guidelines and submit pull requests to our repository.
 
 ## Support
 
-For support and questions:
-
-- Check the [Omi GitHub repository](https://github.com/BasedHardware/omi)
-- Open an issue in this repository
-- Join the Omi community discussions
-
-## Changelog
-
-### v1.0.0
-- Initial release
-- Bluetooth device discovery and connection
-- Audio streaming support
-- WebSocket integration for transcription
-- Cross-platform support (Android/iOS)
-- Comprehensive example app
+For issues and questions:
+- Check the troubleshooting section above
+- Review debug logs for detailed error information
+- Open an issue on our GitHub repository
