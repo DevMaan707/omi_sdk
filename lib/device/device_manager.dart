@@ -1,3 +1,4 @@
+// omi_sdk/lib/device/device_manager.dart
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -18,7 +19,6 @@ class DeviceManager {
   StreamSubscription? _connectionStateSubscription;
   bool _isScanning = false;
   bool _isInitialized = false;
-  Timer? _reconnectionTimer;
 
   List<OmiDevice> get discoveredDevices =>
       List.unmodifiable(_discoveredDevices);
@@ -42,18 +42,19 @@ class DeviceManager {
     );
   }
 
+  // omi_sdk/lib/device/device_manager.dart - Add at the beginning of initialize()
   Future<void> initialize() async {
     if (_isInitialized) return;
 
-    // Check if Bluetooth is supported
     if (await FlutterBluePlus.isSupported == false) {
       throw Exception('Bluetooth not supported by this device');
     }
 
-    // Request Bluetooth permissions
+    // FIXED: Reduce log spam
+    FlutterBluePlus.setLogLevel(LogLevel.none);
+
     await _requestBluetoothPermissions();
 
-    // Initialize Bluetooth adapter state monitoring
     FlutterBluePlus.adapterState.listen((BluetoothAdapterState state) {
       if (state == BluetoothAdapterState.off) {
         _handleBluetoothOff();
@@ -63,9 +64,38 @@ class DeviceManager {
     _isInitialized = true;
   }
 
+  // FIXED: Properly stop audio stream when disconnecting
+  Future<void> disconnect() async {
+    await _connectionStateSubscription?.cancel();
+    _connectionStateSubscription = null;
+
+    if (_connectedDevice != null) {
+      try {
+        // Stop any active notifications before disconnecting
+        final services = await _connectedDevice!.discoverServices();
+        for (final service in services) {
+          for (final characteristic in service.characteristics) {
+            if (characteristic.isNotifying) {
+              try {
+                await characteristic.setNotifyValue(false);
+              } catch (e) {
+                // Ignore errors when stopping notifications
+              }
+            }
+          }
+        }
+
+        await _connectedDevice!.disconnect();
+      } catch (e) {
+        // Ignore disconnect errors
+      }
+      _connectedDevice = null;
+    }
+    _updateConnectionState(DeviceConnectionState.disconnected);
+  }
+
   Future<void> _requestBluetoothPermissions() async {
     if (Platform.isAndroid) {
-      // Request Android-specific permissions
       final permissions = [
         Permission.bluetooth,
         Permission.bluetoothScan,
@@ -107,7 +137,6 @@ class DeviceManager {
       throw Exception('Scan is already in progress');
     }
 
-    // Ensure Bluetooth is on
     if (FlutterBluePlus.adapterStateNow != BluetoothAdapterState.on) {
       if (Platform.isAndroid) {
         await FlutterBluePlus.turnOn();
@@ -190,17 +219,14 @@ class DeviceManager {
         if (state == BluetoothConnectionState.disconnected &&
             _connectionState == DeviceConnectionState.connected) {
           _updateConnectionState(DeviceConnectionState.disconnected);
-          _handleUnexpectedDisconnection();
         }
       });
 
-      if (Platform.isAndroid) {
-        await _connectedDevice!.connect();
-        if (_connectedDevice!.mtuNow < DeviceConstants.defaultMtuSize) {
-          await _connectedDevice!.requestMtu(DeviceConstants.defaultMtuSize);
-        }
-      } else {
-        await _connectedDevice!.connect();
+      await _connectedDevice!.connect();
+
+      if (Platform.isAndroid &&
+          _connectedDevice!.mtuNow < DeviceConstants.defaultMtuSize) {
+        await _connectedDevice!.requestMtu(DeviceConstants.defaultMtuSize);
       }
 
       _updateConnectionState(DeviceConnectionState.connected);
@@ -209,37 +235,6 @@ class DeviceManager {
       _updateConnectionState(DeviceConnectionState.error);
       rethrow;
     }
-  }
-
-  void _handleUnexpectedDisconnection() {
-    // Implement auto-reconnection if enabled
-    _reconnectionTimer?.cancel();
-    _reconnectionTimer = Timer(const Duration(seconds: 2), () async {
-      if (_connectedDevice != null &&
-          _connectionState == DeviceConnectionState.disconnected) {
-        try {
-          await connectToDevice(_connectedDevice!.remoteId.str);
-        } catch (e) {
-          // Auto-reconnection failed, user needs to manually reconnect
-        }
-      }
-    });
-  }
-
-  Future<void> disconnect() async {
-    _reconnectionTimer?.cancel();
-    await _connectionStateSubscription?.cancel();
-    _connectionStateSubscription = null;
-
-    if (_connectedDevice != null) {
-      try {
-        await _connectedDevice!.disconnect();
-      } catch (e) {
-        // Ignore disconnect errors
-      }
-      _connectedDevice = null;
-    }
-    _updateConnectionState(DeviceConnectionState.disconnected);
   }
 
   Future<StreamSubscription?> getAudioStream({
@@ -265,12 +260,16 @@ class DeviceManager {
         orElse: () => throw Exception('Audio characteristic not found'),
       );
 
+      if (Platform.isAndroid &&
+          _connectedDevice!.mtuNow < DeviceConstants.defaultMtuSize) {
+        await _connectedDevice!.requestMtu(DeviceConstants.defaultMtuSize);
+      }
+
       await audioCharacteristic.setNotifyValue(true);
 
       final subscription = audioCharacteristic.lastValueStream.listen((value) {
-        if (value.isNotEmpty &&
-            value.length > DeviceConstants.audioHeaderSize) {
-          onAudioReceived(value.sublist(DeviceConstants.audioHeaderSize));
+        if (value.isNotEmpty) {
+          onAudioReceived(value);
         }
       });
 
@@ -303,8 +302,14 @@ class DeviceManager {
       );
 
       final codecValue = await codecCharacteristic.read();
+      print('Raw codec value from Omi firmware: $codecValue');
+
       if (codecValue.isNotEmpty) {
-        switch (codecValue[0]) {
+        final codecByte = codecValue[0];
+        print('Omi codec byte: $codecByte');
+
+        // Use the same mapping as Python client
+        switch (codecByte) {
           case 1:
             return AudioCodec.pcm8;
           case 20:
@@ -312,12 +317,15 @@ class DeviceManager {
           case 21:
             return AudioCodec.opusFS320;
           default:
-            return AudioCodec.pcm8;
+            print('Unknown codec byte: $codecByte, defaulting to Opus');
+            return AudioCodec.opus; // Default to Opus as per Python client
         }
       }
-      return AudioCodec.pcm8;
+
+      return AudioCodec.opus; // Default to Opus
     } catch (e) {
-      throw Exception('Failed to get audio codec: $e');
+      print('Failed to get audio codec: $e, defaulting to Opus');
+      return AudioCodec.opus;
     }
   }
 
@@ -349,50 +357,6 @@ class DeviceManager {
     }
   }
 
-  Future<StreamSubscription?> getBatteryLevelStream({
-    required Function(int) onBatteryLevelChanged,
-  }) async {
-    if (!isConnected || _connectedDevice == null) {
-      throw Exception('Device not connected');
-    }
-
-    try {
-      final services = await _connectedDevice!.discoverServices();
-      final batteryService = services.firstWhere(
-        (s) =>
-            s.uuid.str128.toLowerCase() ==
-            '0000180f-0000-1000-8000-00805f9b34fb',
-        orElse: () => throw Exception('Battery service not found'),
-      );
-
-      final batteryCharacteristic = batteryService.characteristics.firstWhere(
-        (c) =>
-            c.uuid.str128.toLowerCase() ==
-            '00002a19-0000-1000-8000-00805f9b34fb',
-        orElse: () => throw Exception('Battery characteristic not found'),
-      );
-      final currentValue = await batteryCharacteristic.read();
-      if (currentValue.isNotEmpty) {
-        onBatteryLevelChanged(currentValue[0]);
-      }
-
-      await batteryCharacteristic.setNotifyValue(true);
-
-      final subscription =
-          batteryCharacteristic.lastValueStream.listen((value) {
-        if (value.isNotEmpty) {
-          onBatteryLevelChanged(value[0]);
-        }
-      });
-
-      _connectedDevice!.cancelWhenDisconnected(subscription);
-      return subscription;
-    } catch (e) {
-      // Battery service not available on all devices
-      return null;
-    }
-  }
-
   void _updateConnectionState(DeviceConnectionState state) {
     _connectionState = state;
     if (!_connectionStateController.isClosed) {
@@ -401,7 +365,6 @@ class DeviceManager {
   }
 
   Future<void> dispose() async {
-    _reconnectionTimer?.cancel();
     await stopScan();
     await disconnect();
     if (!_devicesController.isClosed) {

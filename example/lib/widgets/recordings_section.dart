@@ -86,7 +86,6 @@ class _RecordingsSectionState extends State<RecordingsSection> {
   Widget _buildRecordingControls(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final isConnected = widget.appState.isConnected;
     final recordingState = widget.appState.recordingState;
 
     return Container(
@@ -136,7 +135,9 @@ class _RecordingsSectionState extends State<RecordingsSection> {
               Expanded(
                 child: recordingState == RecordingState.idle
                     ? FilledButton.icon(
-                        onPressed: isConnected ? widget.onStartRecording : null,
+                        onPressed: widget.appState.canStartRecording
+                            ? widget.onStartRecording
+                            : null,
                         icon: const Icon(Icons.fiber_manual_record),
                         label: const Text('Start Recording'),
                         style: FilledButton.styleFrom(
@@ -145,7 +146,9 @@ class _RecordingsSectionState extends State<RecordingsSection> {
                         ),
                       )
                     : FilledButton.icon(
-                        onPressed: widget.onStopRecording,
+                        onPressed: widget.appState.canStopRecording
+                            ? widget.onStopRecording
+                            : null,
                         icon: const Icon(Icons.stop),
                         label: const Text('Stop Recording'),
                         style: FilledButton.styleFrom(
@@ -176,6 +179,21 @@ class _RecordingsSectionState extends State<RecordingsSection> {
               ],
             ],
           ),
+          if (!widget.appState.canStartRecording &&
+              recordingState == RecordingState.idle)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                widget.appState.isStreamingAudio ||
+                        widget.appState.isStreamingTranscription
+                    ? 'Stop streaming to start recording'
+                    : 'Connect to a device to start recording',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colorScheme.error,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
         ],
       ),
     );

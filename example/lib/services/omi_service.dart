@@ -1,10 +1,15 @@
+// omi_sdk/example/lib/services/omi_service.dart
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:omi_sdk/omi_sdk.dart';
+import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:io';
+import 'package:share_plus/share_plus.dart';
 
 class OmiService {
   OmiSDK? _sdk;
@@ -12,11 +17,11 @@ class OmiService {
   Timer? _audioLevelTimer;
   final Random _random = Random();
 
+  // SDK streams - UPDATED: Removed segmentsStream
   Stream<List<OmiDevice>>? get devicesStream => _sdk?.device.devicesStream;
   Stream<DeviceConnectionState>? get connectionStateStream =>
       _sdk?.device.connectionStateStream;
   Stream<dynamic>? get messageStream => _sdk?.websocket.messageStream;
-  Stream<List<dynamic>>? get segmentsStream => _sdk?.websocket.segmentsStream;
 
   // Audio level stream for visualization
   final StreamController<List<double>> _audioLevelsController =
@@ -41,7 +46,7 @@ class OmiService {
         Permission.bluetoothScan,
         Permission.bluetoothConnect,
         Permission.locationWhenInUse,
-        Permission.microphone, // Add microphone permission for recording
+        Permission.microphone,
       ];
 
       for (final permission in permissions) {
@@ -70,18 +75,10 @@ class OmiService {
       ];
 
       final statuses = await permissions.request();
-
-      for (final permission in permissions) {
-        final status = statuses[permission];
-        if (status != PermissionStatus.granted) {
-          return false;
-        }
-      }
-      return true;
+      return statuses.values.every((status) => status.isGranted);
     } else if (Platform.isIOS) {
       final permissions = [Permission.bluetooth, Permission.microphone];
       final statuses = await permissions.request();
-
       return statuses.values.every((status) => status.isGranted);
     }
     return true;
@@ -90,8 +87,8 @@ class OmiService {
   Future<void> initializeSDK() async {
     _sdk = await OmiSDK.initialize(
       const OmiConfig(
-        apiBaseUrl: 'https://api.deepgram.com', // Use Deepgram URL
-        apiKey: '', // Your Deepgram API key
+        apiBaseUrl: 'https://api.deepgram.com',
+        apiKey: '',
         connectionTimeout: Duration(seconds: 15),
         scanTimeout: Duration(seconds: 15),
         autoReconnect: true,
@@ -100,15 +97,153 @@ class OmiService {
     );
   }
 
-  // Recording methods
+  // UPDATED: Recording methods with proper log file handling
   Future<String> startRecording({String? customFileName}) async {
     if (_sdk == null) throw Exception('SDK not initialized');
-    return await _sdk!.startRecording(customFileName: customFileName);
+
+    try {
+      return await _sdk!.startRecording(customFileName: customFileName);
+    } catch (e) {
+      print('Failed to start recording: $e');
+      rethrow;
+    }
   }
 
   Future<RecordingSession?> stopRecording() async {
     if (_sdk == null) throw Exception('SDK not initialized');
-    return await _sdk!.stopRecording();
+
+    try {
+      // UPDATED: Get log files using the new allLogFiles getter
+      final logFiles = _sdk!.audio.allLogFiles;
+      final logFilePath = _sdk!.audio.currentLogFilePath;
+
+      print('Log files to share: $logFiles');
+      print('Current log file: $logFilePath');
+
+      // Stop the recording
+      final session = await _sdk!.stopRecording();
+
+      // Share logs if available
+      if (logFiles.isNotEmpty) {
+        await _shareLogsOnWhatsApp(logFiles);
+      }
+
+      return session;
+    } catch (e) {
+      print('Failed to stop recording: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> _shareLogsOnWhatsApp(List<String> logFiles) async {
+    try {
+      print('Attempting to share ${logFiles.length} log files');
+
+      // Filter existing files
+      final existingFiles = logFiles.where((filePath) {
+        final exists = File(filePath).existsSync();
+        print('File $filePath exists: $exists');
+        return exists;
+      }).toList();
+
+      if (existingFiles.isEmpty) {
+        print('No log files found to share');
+        return;
+      }
+
+      // Create a combined log file for easier sharing
+      final combinedLogFile = await _createCombinedLogFile(existingFiles);
+
+      if (combinedLogFile != null) {
+        print('Sharing combined log file: ${combinedLogFile.path}');
+
+        final shareResult = await Share.shareXFiles(
+          [XFile(combinedLogFile.path)],
+          text: 'Omi Audio Debug Logs - ${DateTime.now().toString()}',
+          subject: 'Omi Audio Debug Session',
+        );
+
+        print('Share result: $shareResult');
+        await _cleanupLogFiles([...existingFiles, combinedLogFile.path]);
+      }
+    } catch (e) {
+      print('Error sharing logs: $e');
+      await _cleanupLogFiles(logFiles);
+    }
+  }
+
+  Future<File?> _createCombinedLogFile(List<String> logFiles) async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final combinedFile =
+          File('${directory.path}/omi_combined_logs_$timestamp.txt');
+
+      final sink = combinedFile.openWrite();
+
+      // Write header
+      sink.writeln('='.padRight(80, '='));
+      sink.writeln('OMI AUDIO DEBUG LOGS');
+      sink.writeln('Generated: ${DateTime.now().toIso8601String()}');
+      sink.writeln('Total files: ${logFiles.length}');
+      sink.writeln('='.padRight(80, '='));
+      sink.writeln();
+
+      for (final logFilePath in logFiles) {
+        final file = File(logFilePath);
+        if (file.existsSync()) {
+          final fileName = path.basename(logFilePath);
+          final fileSize = await file.length();
+
+          sink.writeln('-'.padRight(80, '-'));
+          sink.writeln('FILE: $fileName');
+          sink.writeln('SIZE: $fileSize bytes');
+          sink.writeln('PATH: $logFilePath');
+          sink.writeln('-'.padRight(80, '-'));
+
+          if (fileName.endsWith('.log') || fileName.endsWith('.txt')) {
+            try {
+              final content = await file.readAsString();
+              sink.writeln(content);
+            } catch (e) {
+              sink.writeln('Error reading file content: $e');
+            }
+          } else {
+            sink.writeln('Binary file - content not displayed');
+            sink.writeln('File type: ${fileName.split('.').last}');
+          }
+
+          sink.writeln();
+          sink.writeln();
+        }
+      }
+
+      sink.writeln('='.padRight(80, '='));
+      sink.writeln('END OF LOG SESSION');
+      sink.writeln('='.padRight(80, '='));
+
+      await sink.close();
+      return combinedFile;
+    } catch (e) {
+      print('Error creating combined log file: $e');
+      return null;
+    }
+  }
+
+  Future<void> _cleanupLogFiles(List<String> logFiles) async {
+    print('Cleaning up ${logFiles.length} log files');
+
+    for (final logFilePath in logFiles) {
+      try {
+        final file = File(logFilePath);
+        if (file.existsSync()) {
+          await file.delete();
+          print('Deleted log file: $logFilePath');
+        }
+      } catch (e) {
+        print('Error deleting log file $logFilePath: $e');
+      }
+    }
   }
 
   Future<void> pauseRecording() async {
@@ -143,7 +278,13 @@ class OmiService {
 
   Future<List<RecordingSession>> getRecordings() async {
     if (_sdk == null) throw Exception('SDK not initialized');
-    return await _sdk!.getRecordings();
+
+    try {
+      return await _sdk!.getRecordings();
+    } catch (e) {
+      print('Failed to get recordings: $e');
+      return [];
+    }
   }
 
   Future<void> deleteRecording(String filePath) async {
@@ -151,75 +292,138 @@ class OmiService {
     await _sdk!.deleteRecording(filePath);
   }
 
+  // UPDATED: Audio streaming with proper codec detection
   Future<void> startAudioOnlyStreaming() async {
     if (_sdk == null) throw Exception('SDK not initialized');
 
-    await _sdk!.startAudioOnlyStreaming();
+    try {
+      // Get the actual codec from the device
+      final codec = await _sdk!.device.getAudioCodec();
+      print('Starting audio stream with detected codec: $codec');
 
-    _audioStreamSubscription = _sdk!.audio.audioDataStream.listen((audioData) {
-      _processAudioForVisualization(audioData);
-    });
+      await _sdk!.startAudioOnlyStreaming();
+
+      // Listen to processed audio stream (after Opus decoding)
+      _audioStreamSubscription =
+          _sdk!.audio.processedAudioStream.listen((audioData) {
+        _processAudioForVisualization(audioData);
+      });
+    } catch (e) {
+      print('Failed to start audio streaming: $e');
+      rethrow;
+    }
   }
 
+  // omi_sdk/example/lib/services/omi_service.dart - Update transcription method
   Future<void> startTranscriptionStreaming({String? userId}) async {
     if (_sdk == null) throw Exception('SDK not initialized');
 
-    // Use the SDK's transcription streaming with Deepgram parameters
-    await _sdk!.startTranscriptionStreaming(
-      websocketUrl: 'wss://api.deepgram.com',
-      apiKey: 'beaf635d55b04c2e77b852090bd4dd07fb2e9a85',
-      userId: userId,
-      language: 'en-US',
-      customParams: {
-        'model': 'nova-2',
-        'smart_format': 'true',
-        'interim_results': 'true',
-        'punctuate': 'true',
-        'encoding': 'linear16',
-        'sample_rate': '16000',
-        'channels': '1',
-      },
-    );
+    try {
+      final codec = await _sdk!.device.getAudioCodec();
+      print(
+          'Starting transcription with codec: $codec (${codec.sampleRate} Hz)');
 
-    // Listen to audio stream for visualization
-    _audioStreamSubscription = _sdk!.audio.audioDataStream.listen((audioData) {
-      _processAudioForVisualization(audioData);
-    });
+      await _sdk!.startTranscriptionStreaming(
+        websocketUrl: 'wss://api.deepgram.com/v1/listen', // FIXED: Correct URL
+        apiKey: '',
+        userId: userId,
+        language: 'en-US',
+        customParams: {
+          'model': 'nova-2',
+          'smart_format': 'true',
+          'interim_results': 'true',
+          'punctuate': 'true',
+          'encoding': 'linear16',
+          'sample_rate': '16000',
+          'channels': '1',
+          'endpointing': '300',
+          'vad_events': 'true',
+          'numerals': 'true',
+          'search': 'true',
+          'replace': 'true',
+        },
+      );
+
+      // Listen to processed audio stream for visualization
+      _audioStreamSubscription =
+          _sdk!.audio.processedAudioStream.listen((audioData) {
+        _processAudioForVisualization(audioData);
+      });
+    } catch (e) {
+      print('Failed to start transcription streaming: $e');
+      rethrow;
+    }
   }
 
+  // FIXED: Properly stop streaming to prevent log spam
+  Future<void> stopStreaming() async {
+    if (_sdk == null) return;
+
+    print('Stopping all streaming...');
+
+    await _audioStreamSubscription?.cancel();
+    _audioStreamSubscription = null;
+
+    _audioLevelTimer?.cancel();
+    _audioLevelTimer = null;
+
+    try {
+      await _sdk!.stopAudioStreaming();
+      print('Audio streaming stopped');
+    } catch (e) {
+      print('Error stopping streaming: $e');
+    }
+  }
+
+  // UPDATED: Better audio visualization processing
   void _processAudioForVisualization(Uint8List audioData) {
     if (audioData.isEmpty) return;
 
-    final levels = <double>[];
-    const int numBars = 20;
-    int samplesPerBar =
-        (audioData.length ~/ numBars).clamp(1, audioData.length);
+    try {
+      const int numBars = 20;
+      const int bytesPerSample = 2; // 16-bit samples
 
-    for (int i = 0; i < numBars; i++) {
-      double sum = 0;
-      int start = i * samplesPerBar;
-      int end = min(start + samplesPerBar, audioData.length);
+      if (audioData.length < bytesPerSample) return;
 
-      // Calculate RMS (Root Mean Square) for better audio level representation
-      for (int j = start; j < end; j++) {
-        // Convert to signed 16-bit value
-        int sample = audioData[j];
-        if (sample > 127) sample = sample - 256;
-        sum += sample * sample;
+      final levels = <double>[];
+      final samplesPerBar = (audioData.length ~/ bytesPerSample ~/ numBars)
+          .clamp(1, audioData.length ~/ bytesPerSample);
+
+      for (int i = 0; i < numBars; i++) {
+        double sum = 0;
+        int sampleCount = 0;
+
+        for (int j = 0; j < samplesPerBar; j++) {
+          final sampleIndex = (i * samplesPerBar + j) * bytesPerSample;
+          if (sampleIndex + 1 < audioData.length) {
+            // Proper 16-bit sample extraction (little-endian)
+            final sample =
+                (audioData[sampleIndex + 1] << 8) | audioData[sampleIndex];
+            final signedSample = sample > 32767 ? sample - 65536 : sample;
+
+            sum += (signedSample * signedSample).toDouble();
+            sampleCount++;
+          }
+        }
+
+        if (sampleCount > 0) {
+          final rms = math.sqrt(sum / sampleCount);
+          final normalizedLevel = (rms / 32768.0).clamp(0.0, 1.0);
+          final visualLevel = normalizedLevel > 0.001
+              ? math.pow(normalizedLevel, 0.5).clamp(0.0, 1.0)
+              : 0.0;
+
+          levels.add(visualLevel.toDouble());
+        } else {
+          levels.add(0.0);
+        }
       }
 
-      double rms = sqrt(sum / (end - start));
-      // Normalize to 0.0 - 1.0 range and apply some scaling
-      double level = (rms / 128.0).clamp(0.0, 1.0);
-
-      // Apply some smoothing and boost lower levels for better visualization
-      level = pow(level, 0.5)
-          .toDouble(); // Square root for better visual distribution
-      levels.add(level);
-    }
-
-    if (!_audioLevelsController.isClosed) {
-      _audioLevelsController.add(levels);
+      if (!_audioLevelsController.isClosed) {
+        _audioLevelsController.add(levels);
+      }
+    } catch (e) {
+      print('Error processing audio for visualization: $e');
     }
   }
 
@@ -242,16 +446,6 @@ class OmiService {
   Future<void> disconnect() async {
     if (_sdk == null) throw Exception('SDK not initialized');
     await _sdk!.device.disconnect();
-  }
-
-  Future<void> stopStreaming() async {
-    await _audioStreamSubscription?.cancel();
-    _audioStreamSubscription = null;
-
-    _audioLevelTimer?.cancel();
-    _audioLevelTimer = null;
-
-    await _sdk?.stopAudioStreaming();
   }
 
   List<OmiDevice> filterOmiDevices(List<OmiDevice> allDevices) {

@@ -15,7 +15,8 @@ class DeviceConstants {
 
   // Audio Configuration
   static const int defaultMtuSize = 512;
-  static const int audioHeaderSize = 3;
+  static const int audioHeaderSize =
+      3; // This is the key - first 3 bytes are header
 
   // Connection Settings
   static const int heartbeatIntervalSeconds = 30;

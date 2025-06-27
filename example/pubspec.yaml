@@ -13,6 +13,9 @@ dependencies:
     sdk: flutter
   # Add your local SDK as a path dependency
   permission_handler: ^11.0.1
+  share_plus: ^7.2.1
+  path_provider: ^2.1.1
+  path: ^1.8.3
   omi_sdk:
     path: ../
   # Add cupertino_icons for iOS-style icons

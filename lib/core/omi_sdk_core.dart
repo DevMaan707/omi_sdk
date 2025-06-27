@@ -20,6 +20,8 @@ class OmiSDK {
   bool _isInitialized = false;
   StreamingMode? _currentStreamingMode;
   StreamSubscription? _audioStreamSubscription;
+  bool _isRecording = false;
+  bool _isStreaming = false;
 
   OmiSDK._();
 
@@ -56,6 +58,8 @@ class OmiSDK {
   OmiConfig get config => _config;
 
   bool get isInitialized => _isInitialized;
+  bool get isRecording => _isRecording;
+  bool get isStreaming => _isStreaming;
   StreamingMode? get currentStreamingMode => _currentStreamingMode;
 
   /// Start recording audio from the connected device
@@ -64,34 +68,64 @@ class OmiSDK {
       throw Exception('No device connected. Connect to a device first.');
     }
 
-    if (!audio.isStreaming) {
-      // Start audio stream if not already streaming
-      await audio.startAudioStream(getAudioStream: device.getAudioStream);
+    if (_isRecording) {
+      throw Exception('Recording already in progress');
     }
 
-    final codec = await device.getAudioCodec();
-    final deviceName = device.connectedDevice?.name ?? 'Unknown Device';
+    if (_isStreaming) {
+      throw Exception(
+          'Cannot record while streaming is active. Stop streaming first.');
+    }
 
-    return await recording.startRecording(
-      audioStream: audio.audioDataStream,
-      sampleRate: codec.sampleRate,
-      deviceName: deviceName,
-      customFileName: customFileName,
-    );
+    _isRecording = true;
+
+    try {
+      // Start fresh audio stream for recording
+      await audio.startAudioStream(getAudioStream: device.getAudioStream);
+
+      final codec = await device.getAudioCodec();
+      final deviceName = device.connectedDevice?.name ?? 'Unknown Device';
+
+      final filePath = await recording.startRecording(
+        audioStream: audio.audioDataStream,
+        sampleRate: codec.sampleRate,
+        deviceName: deviceName,
+        customFileName: customFileName,
+      );
+
+      return filePath;
+    } catch (e) {
+      _isRecording = false;
+      await audio.stopAudioStream();
+      rethrow;
+    }
   }
 
   /// Stop recording and return the recording session
   Future<RecordingSession?> stopRecording() async {
-    return await recording.stopRecording();
+    if (!_isRecording) return null;
+
+    try {
+      final session = await recording.stopRecording();
+      await audio.stopAudioStream();
+      _isRecording = false;
+      return session;
+    } catch (e) {
+      _isRecording = false;
+      await audio.stopAudioStream();
+      rethrow;
+    }
   }
 
   /// Pause current recording
   Future<void> pauseRecording() async {
+    if (!_isRecording) return;
     await recording.pauseRecording();
   }
 
   /// Resume paused recording
   Future<void> resumeRecording() async {
+    if (!_isRecording) return;
     await recording.resumeRecording();
   }
 
@@ -125,16 +159,32 @@ class OmiSDK {
     await recording.deleteRecording(filePath);
   }
 
-  /// Start audio streaming with flexible configuration
+  String? getCurrentAudioLogPath() {
+    return _audioManager.currentLogFilePath;
+  }
+
+  // Add method to get all audio log files
+  List<String> getAllAudioLogFiles() {
+    return _audioManager.allLogFiles;
+  }
+
   Future<void> startAudioStreaming({
     StreamingConfig? streamingConfig,
-    String? userId, // Deprecated: use streamingConfig.userId
+    String? userId,
   }) async {
     if (!device.isConnected) {
       throw Exception('No device connected. Connect to a device first.');
     }
 
-    // Handle backward compatibility
+    if (_isStreaming) {
+      throw Exception('Streaming already active');
+    }
+
+    if (_isRecording) {
+      throw Exception(
+          'Cannot stream while recording is active. Stop recording first.');
+    }
+
     final config = streamingConfig ??
         StreamingConfig(
           mode: StreamingMode.transcriptionOnly,
@@ -144,49 +194,65 @@ class OmiSDK {
         );
 
     _currentStreamingMode = config.mode;
+    _isStreaming = true;
 
-    // Get audio codec from device
-    final codec = await device.getAudioCodec();
+    try {
+      // Get audio codec from device FIRST
+      final codec = await device.getAudioCodec();
+      print('Detected audio codec: $codec (${codec.sampleRate} Hz)');
 
-    // Connect WebSocket if needed
-    if (config.mode == StreamingMode.transcriptionOnly ||
-        config.mode == StreamingMode.both) {
-      await websocket.connect(
-        codec: codec,
-        sampleRate: codec.sampleRate,
-        language: config.language,
-        userId: config.userId,
-        includeSpeechProfile: config.includeSpeechProfile,
-        websocketUrl: config.websocketUrl,
-        apiKey: config.apiKey,
-        customHeaders: config.customHeaders,
-        customParams: config.customParams,
-      );
-    }
-
-    // Start audio stream from device
-    await audio.startAudioStream(
-      getAudioStream: device.getAudioStream,
-    );
-
-    // Handle audio data based on streaming mode
-    _audioStreamSubscription = audio.audioDataStream.listen((audioData) {
-      switch (config.mode) {
-        case StreamingMode.audioOnly:
-          // Audio data is available via audio.audioDataStream
-          break;
-        case StreamingMode.transcriptionOnly:
-          websocket.sendAudio(audioData);
-          break;
-        case StreamingMode.both:
-          websocket.sendAudio(audioData);
-          // Audio data is also available via audio.audioDataStream
-          break;
+      // Connect WebSocket if needed with proper codec info
+      if (config.mode == StreamingMode.transcriptionOnly ||
+          config.mode == StreamingMode.both) {
+        await websocket.connect(
+          codec: codec,
+          sampleRate: codec.sampleRate,
+          language: config.language,
+          userId: config.userId,
+          includeSpeechProfile: config.includeSpeechProfile,
+          websocketUrl: config.websocketUrl,
+          apiKey: config.apiKey,
+          customHeaders: config.customHeaders,
+          customParams: config.customParams,
+        );
       }
-    });
+
+      // Start audio stream from device with codec info
+      await audio.startAudioStream(
+        getAudioStream: device.getAudioStream,
+        codec: codec, // Pass codec to AudioManager
+      );
+      _audioStreamSubscription = audio.processedAudioStream.listen(
+        (audioData) {
+          switch (config.mode) {
+            case StreamingMode.audioOnly:
+              // Audio data is available via audio.audioDataStream
+              break;
+            case StreamingMode.transcriptionOnly:
+              // Send processed audio frames to websocket
+              websocket.sendAudio(audioData.toList());
+              break;
+            case StreamingMode.both:
+              websocket.sendAudio(audioData.toList());
+              // Audio data is also available via audio.audioDataStream
+              break;
+          }
+        },
+        onError: (error) {
+          print('Audio stream error: $error');
+          stopAudioStreaming();
+        },
+      );
+
+      print('Audio streaming started successfully with mode: ${config.mode}');
+    } catch (e) {
+      _isStreaming = false;
+      _currentStreamingMode = null;
+      await _cleanupStreaming();
+      rethrow;
+    }
   }
 
-  /// Start audio-only streaming (no WebSocket)
   Future<void> startAudioOnlyStreaming() async {
     await startAudioStreaming(
       streamingConfig: const StreamingConfig(mode: StreamingMode.audioOnly),
@@ -243,6 +309,14 @@ class OmiSDK {
 
   /// Stop audio streaming
   Future<void> stopAudioStreaming() async {
+    if (!_isStreaming) return;
+
+    _isStreaming = false;
+    _currentStreamingMode = null;
+    await _cleanupStreaming();
+  }
+
+  Future<void> _cleanupStreaming() async {
     await _audioStreamSubscription?.cancel();
     _audioStreamSubscription = null;
 
@@ -252,12 +326,11 @@ class OmiSDK {
         _currentStreamingMode == StreamingMode.both) {
       await websocket.disconnect();
     }
-
-    _currentStreamingMode = null;
   }
 
   Future<void> dispose() async {
     await stopAudioStreaming();
+    await stopRecording();
     await _deviceManager.dispose();
     await _audioManager.dispose();
     await _websocketManager.dispose();

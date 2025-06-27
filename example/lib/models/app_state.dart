@@ -1,3 +1,4 @@
+// omi_sdk/example/lib/models/app_state.dart
 import 'package:omi_sdk/omi_sdk.dart';
 
 enum AppStatus {
@@ -31,7 +32,7 @@ class AppState {
   final List<String> messages;
   final String transcriptionText;
   final String interimText;
-  final List<double> audioLevels; // For audio visualization
+  final List<double> audioLevels;
   final bool isWebSocketConnected;
   final List<RecordingSession> recordings;
 
@@ -57,6 +58,24 @@ class AppState {
     this.isWebSocketConnected = false,
     this.recordings = const [],
   });
+
+  // Convenience getters for better state management
+  bool get canStartRecording =>
+      isConnected &&
+      !isRecording &&
+      !isStreamingAudio &&
+      !isStreamingTranscription;
+
+  bool get canStartStreaming =>
+      isConnected &&
+      !isRecording &&
+      !isStreamingAudio &&
+      !isStreamingTranscription;
+
+  bool get canStopRecording =>
+      isRecording && recordingState != RecordingState.idle;
+
+  bool get canStopStreaming => isStreamingAudio || isStreamingTranscription;
 
   AppState copyWith({
     AppStatus? status,

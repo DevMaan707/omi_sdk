@@ -57,6 +57,8 @@ class RecordingManager {
   File? _currentRecordingFile;
   IOSink? _currentRecordingSink;
   DateTime? _recordingStartTime;
+  DateTime? _pauseStartTime;
+  Duration _pausedDuration = Duration.zero;
   final List<int> _audioBuffer = [];
   int _sampleRate = 16000;
   String _deviceName = 'Unknown Device';
@@ -75,7 +77,20 @@ class RecordingManager {
 
   Duration get currentRecordingDuration {
     if (_recordingStartTime == null) return Duration.zero;
-    return DateTime.now().difference(_recordingStartTime!);
+
+    final now = DateTime.now();
+    var elapsed = now.difference(_recordingStartTime!);
+
+    // Subtract paused time
+    elapsed = elapsed - _pausedDuration;
+
+    // If currently paused, don't count the current pause time
+    if (_state == RecordingState.paused && _pauseStartTime != null) {
+      // Duration is frozen at pause time
+      return elapsed;
+    }
+
+    return elapsed;
   }
 
   Future<void> initialize() async {
@@ -92,9 +107,12 @@ class RecordingManager {
       throw Exception('Recording already in progress');
     }
 
+    // Reset state
     _sampleRate = sampleRate;
     _deviceName = deviceName;
     _recordingStartTime = DateTime.now();
+    _pauseStartTime = null;
+    _pausedDuration = Duration.zero;
 
     // Create recording file
     final directory = await getApplicationDocumentsDirectory();
@@ -118,10 +136,16 @@ class RecordingManager {
       (audioData) {
         if (_state == RecordingState.recording) {
           _audioBuffer.addAll(audioData);
-          _currentRecordingSink!.add(audioData);
+          _currentRecordingSink?.add(audioData);
         }
       },
       onError: (error) {
+        print('Audio stream error in recording: $error');
+        _stopRecordingInternal();
+        _updateState(RecordingState.idle);
+      },
+      onDone: () {
+        print('Audio stream ended');
         _stopRecordingInternal();
         _updateState(RecordingState.idle);
       },
@@ -130,25 +154,40 @@ class RecordingManager {
     _updateState(RecordingState.recording);
 
     // Start duration timer
+    _startDurationTimer();
+
+    return _currentRecordingFile!.path;
+  }
+
+  void _startDurationTimer() {
+    _durationTimer?.cancel();
     _durationTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-      if (_state == RecordingState.recording && _recordingStartTime != null) {
-        final duration = DateTime.now().difference(_recordingStartTime!);
+      if ((_state == RecordingState.recording ||
+              _state == RecordingState.paused) &&
+          _recordingStartTime != null) {
+        final duration = currentRecordingDuration;
         if (!_durationController.isClosed) {
           _durationController.add(duration);
         }
       }
     });
-
-    return _currentRecordingFile!.path;
   }
 
   Future<void> pauseRecording() async {
     if (_state != RecordingState.recording) return;
+
+    _pauseStartTime = DateTime.now();
     _updateState(RecordingState.paused);
   }
 
   Future<void> resumeRecording() async {
     if (_state != RecordingState.paused) return;
+
+    if (_pauseStartTime != null) {
+      _pausedDuration += DateTime.now().difference(_pauseStartTime!);
+      _pauseStartTime = null;
+    }
+
     _updateState(RecordingState.recording);
   }
 
@@ -156,9 +195,7 @@ class RecordingManager {
     if (_state == RecordingState.idle) return null;
 
     final endTime = DateTime.now();
-    final duration = _recordingStartTime != null
-        ? endTime.difference(_recordingStartTime!)
-        : Duration.zero;
+    final duration = currentRecordingDuration;
 
     await _stopRecordingInternal();
 
@@ -176,14 +213,11 @@ class RecordingManager {
         deviceName: _deviceName,
       );
 
-      _currentRecordingFile = null;
-      _recordingStartTime = null;
-      _updateState(RecordingState.idle);
-
+      _resetRecordingState();
       return session;
     }
 
-    _updateState(RecordingState.idle);
+    _resetRecordingState();
     return null;
   }
 
@@ -197,6 +231,15 @@ class RecordingManager {
     await _currentRecordingSink?.flush();
     await _currentRecordingSink?.close();
     _currentRecordingSink = null;
+  }
+
+  void _resetRecordingState() {
+    _currentRecordingFile = null;
+    _recordingStartTime = null;
+    _pauseStartTime = null;
+    _pausedDuration = Duration.zero;
+    _audioBuffer.clear();
+    _updateState(RecordingState.idle);
   }
 
   Future<void> playRecording(String filePath) async {
@@ -252,6 +295,7 @@ class RecordingManager {
         );
         recordings.add(session);
       } catch (e) {
+        print('Error processing recording file: $e');
         // Skip invalid files
       }
     }
@@ -294,24 +338,28 @@ class RecordingManager {
   }
 
   Future<void> _updateWavHeader(File file, int dataSize) async {
-    final bytes = await file.readAsBytes();
-    if (bytes.length < 44) return;
+    try {
+      final bytes = await file.readAsBytes();
+      if (bytes.length < 44) return;
 
-    // Update file size at offset 4
-    final fileSize = bytes.length - 8;
-    bytes[4] = fileSize & 0xFF;
-    bytes[5] = (fileSize >> 8) & 0xFF;
-    bytes[6] = (fileSize >> 16) & 0xFF;
-    bytes[7] = (fileSize >> 24) & 0xFF;
+      // Update file size at offset 4
+      final fileSize = bytes.length - 8;
+      bytes[4] = fileSize & 0xFF;
+      bytes[5] = (fileSize >> 8) & 0xFF;
+      bytes[6] = (fileSize >> 16) & 0xFF;
+      bytes[7] = (fileSize >> 24) & 0xFF;
 
-    // Update data size at offset 40
-    final actualDataSize = bytes.length - 44;
-    bytes[40] = actualDataSize & 0xFF;
-    bytes[41] = (actualDataSize >> 8) & 0xFF;
-    bytes[42] = (actualDataSize >> 16) & 0xFF;
-    bytes[43] = (actualDataSize >> 24) & 0xFF;
+      // Update data size at offset 40
+      final actualDataSize = bytes.length - 44;
+      bytes[40] = actualDataSize & 0xFF;
+      bytes[41] = (actualDataSize >> 8) & 0xFF;
+      bytes[42] = (actualDataSize >> 16) & 0xFF;
+      bytes[43] = (actualDataSize >> 24) & 0xFF;
 
-    await file.writeAsBytes(bytes);
+      await file.writeAsBytes(bytes);
+    } catch (e) {
+      print('Error updating WAV header: $e');
+    }
   }
 
   List<int> _int32ToBytes(int value) {

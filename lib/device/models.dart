@@ -10,6 +10,9 @@ enum StreamingMode {
   both // Stream audio + transcription
 }
 
+// omi_sdk/lib/device/models.dart - Updated AudioCodec enum
+
+// In omi_sdk/lib/device/models.dart - Update AudioCodec enum
 enum AudioCodec {
   pcm8,
   pcm16,
@@ -19,11 +22,25 @@ enum AudioCodec {
   int get sampleRate {
     switch (this) {
       case AudioCodec.pcm8:
-        return 8000;
+        return 8000; // Correct for XIAO nRF52840
       case AudioCodec.pcm16:
+        return 16000;
       case AudioCodec.opus:
+        return 16000;
       case AudioCodec.opusFS320:
         return 16000;
+    }
+  }
+
+  int get bytesPerSample {
+    switch (this) {
+      case AudioCodec.pcm8:
+        return 1;
+      case AudioCodec.pcm16:
+        return 2;
+      case AudioCodec.opus:
+      case AudioCodec.opusFS320:
+        return 2;
     }
   }
 }
