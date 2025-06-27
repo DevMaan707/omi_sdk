@@ -1,4 +1,3 @@
-// omi_sdk/lib/audio/audio_manager.dart
 import 'dart:async';
 import 'dart:typed_data';
 import 'dart:io';
@@ -52,7 +51,7 @@ class AudioManager {
     await _initializeLogging();
 
     _isInitialized = true;
-    print('AudioManager initialized successfully');
+    await _log('AudioManager initialized successfully');
   }
 
   Future<void> _initializeOpus() async {
@@ -61,11 +60,11 @@ class AudioManager {
       final opusLib = await opus_flutter.load();
       initOpus(opusLib);
 
-      print('Opus library loaded successfully');
-      print('Opus version: ${getOpusVersion()}');
+      await _log('Opus library loaded successfully');
+      await _log('Opus version: ${getOpusVersion()}');
       _opusInitialized = true;
     } catch (e) {
-      print('Failed to initialize Opus: $e');
+      await _log('Failed to initialize Opus: $e');
       _opusInitialized = false;
       throw Exception('Failed to initialize Opus decoder: $e');
     }
@@ -91,9 +90,9 @@ class AudioManager {
       if (_opusInitialized) {
         await _log('Opus version: ${getOpusVersion()}');
       }
-      print('Audio debug log: ${_logFile!.path}');
+      await _log('Audio debug log: ${_logFile!.path}');
     } catch (e) {
-      print('Failed to initialize logging: $e');
+      await _log('Failed to initialize logging: $e');
     }
   }
 
@@ -111,14 +110,13 @@ class AudioManager {
   Future<void> _log(String message) async {
     final timestamp = DateTime.now().toIso8601String();
     final logMessage = '[$timestamp] $message';
-    print(logMessage);
 
     try {
       if (_logFile != null) {
         await _logFile!.writeAsString('$logMessage\n', mode: FileMode.append);
       }
     } catch (e) {
-      print('Failed to write to log: $e');
+      await _log('Failed to write to log: $e');
     }
   }
 
@@ -206,29 +204,25 @@ class AudioManager {
 
       if (_currentCodec == AudioCodec.opus ||
           _currentCodec == AudioCodec.opusFS320) {
-        // Handle Opus decoding
         if (packet.length <= 3) {
           await _log('Packet too short for Opus (${packet.length} bytes)');
           return;
         }
 
-        // Remove 3-byte header (following Python implementation)
         final opusData = packet.sublist(3);
 
         if (_packetsReceived <= 10) {
           await _log(
-              'Opus packet ${_packetsReceived}: ${packet.length} bytes total, ${opusData.length} bytes payload');
+              'Opus packet $_packetsReceived: ${packet.length} bytes total, ${opusData.length} bytes payload');
           await _log('Header: ${packet.take(3).toList()}');
           await _log('First 10 payload bytes: ${opusData.take(10).toList()}');
         }
 
-        // Decode Opus to PCM using opus_dart
         if (_opusDecoder != null && opusData.isNotEmpty) {
           try {
             final pcmData =
                 _opusDecoder!.decode(input: Uint8List.fromList(opusData));
             if (pcmData.isNotEmpty) {
-              // FIXED: Convert Int16List to Uint8List properly
               audioData = _convertInt16ListToUint8List(pcmData);
               if (_packetsReceived <= 5) {
                 await _log('Decoded PCM: ${audioData.length} bytes');
@@ -249,7 +243,6 @@ class AudioManager {
           return;
         }
       } else {
-        // Handle PCM data directly
         audioData = _convertAudioData(packet);
       }
 
@@ -288,7 +281,6 @@ class AudioManager {
         return Uint8List.fromList(data);
       case AudioCodec.opus:
       case AudioCodec.opusFS320:
-        // Should be handled by Opus decoder above
         return Uint8List.fromList(data);
       default:
         return Uint8List.fromList(data);
@@ -312,7 +304,6 @@ class AudioManager {
     return Uint8List.fromList(result);
   }
 
-  // omi_sdk/lib/audio/audio_manager.dart - Add proper cleanup
   Future<void> stopAudioStream() async {
     if (!_isStreaming) return;
 
@@ -323,16 +314,12 @@ class AudioManager {
     await _log('=============================');
 
     try {
-      // FIXED: Properly cancel the audio subscription
       await _audioSubscription?.cancel();
       _audioSubscription = null;
 
       _isStreaming = false;
       _resetProcessing();
-
-      // Clear the audio data controllers to stop processing
       if (!_audioDataController.isClosed) {
-        // Don't close, just clear any pending data
         _audioDataController.add(Uint8List(0));
       }
       if (!_processedAudioController.isClosed) {
@@ -362,13 +349,13 @@ class AudioManager {
 
       await _log('=== AUDIO DEBUG SESSION ENDED ===');
       if (_logFile != null) {
-        print('Audio debug log saved to: ${_logFile!.path}');
+        await _log('Audio debug log saved to: ${_logFile!.path}');
       }
     } catch (e) {
-      print('Error disposing AudioManager: $e');
+      await _log('Error disposing AudioManager: $e');
     }
 
     _isInitialized = false;
-    print('AudioManager disposed');
+    await _log('AudioManager disposed');
   }
 }

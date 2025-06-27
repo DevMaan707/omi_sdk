@@ -1,10 +1,8 @@
-// omi_sdk/lib/websocket/websocket_manager.dart
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/io.dart';
-import '../constants/device_constants.dart';
 import '../core/config.dart';
 import '../device/models.dart';
 
