@@ -86,7 +86,7 @@ class OmiService {
     _sdk = await OmiSDK.initialize(
       const OmiConfig(
         apiBaseUrl: 'https://api.deepgram.com',
-        apiKey: '',
+        apiKey: 'beaf635d55b04c2e77b852090bd4dd07fb2e9a85',
         connectionTimeout: Duration(seconds: 15),
         scanTimeout: Duration(seconds: 15),
         autoReconnect: true,
@@ -323,7 +323,7 @@ class OmiService {
 
       await _sdk!.startTranscriptionStreaming(
         websocketUrl: 'wss://api.deepgram.com/v1/listen', // FIXED: Correct URL
-        apiKey: '',
+        apiKey: 'beaf635d55b04c2e77b852090bd4dd07fb2e9a85',
         userId: userId,
         language: 'en-US',
         customParams: {

@@ -11,3 +11,7 @@
 
 ### v1.0.1
 - Updated Readme
+
+
+### v1.0.2
+- Modified LICENSE
