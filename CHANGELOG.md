@@ -15,3 +15,7 @@
 
 ### v1.0.2
 - Modified LICENSE
+
+### v1.0.3
+
+- Updated permission_handler to ^12.0.1
